@@ -1,0 +1,7 @@
+node_modules/
+dist/
+target/
+*.tsbuildinfo
+.DS_Store
+*.log
+fixtures/**/*.actual.dxf
