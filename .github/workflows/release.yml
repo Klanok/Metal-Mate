@@ -1,0 +1,100 @@
+name: Release
+
+# Builds installers for Windows, macOS and Linux and attaches them to a GitHub
+# Release. Each one is built on its own operating system, because a Windows
+# .exe cannot practically be cross-compiled from Linux.
+#
+# To cut a release:
+#   git tag v0.1.0 && git push origin v0.1.0
+# or run this workflow by hand from the Actions tab, which is useful for
+# producing a build to test without minting a version number.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish the build under (e.g. v0.1.0-test)'
+        required: true
+        default: 'v0.0.0-dev'
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            args: ''
+            label: Windows
+          - platform: macos-latest
+            # One binary covering both Apple Silicon and Intel.
+            args: '--target universal-apple-darwin'
+            label: macOS
+          # Pinned to 22.04 on purpose: an AppImage only runs on glibc at least
+          # as new as the one it was built against, so building on the newest
+          # runner would silently drop support for older distributions.
+          - platform: ubuntu-22.04
+            args: ''
+            label: Linux
+
+    runs-on: ${{ matrix.platform }}
+    name: ${{ matrix.label }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+
+      - name: Install Linux webview dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - run: npm ci
+
+      # The suite is quick and this is the last gate before something reaches
+      # the fabricator's machine, so run it rather than trusting the PR.
+      - run: npm test
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: app
+          tagName: ${{ github.event.inputs.tag || github.ref_name }}
+          releaseName: 'Metal Mate ${{ github.event.inputs.tag || github.ref_name }}'
+          releaseBody: |
+            Download the installer for your machine below.
+
+            - **Windows** — `.exe` (or `.msi` to deploy through group policy)
+            - **macOS** — `.dmg`
+            - **Linux** — `.AppImage` (portable) or `.deb`
+
+            These builds are **not code signed**. Windows SmartScreen will warn
+            on first run: choose *More info* then *Run anyway*. macOS will need
+            right-click then *Open* the first time.
+
+            Before trusting any flat pattern this produces, replace the
+            placeholder press brake with the real machine and calibrate the
+            bend allowance against a folded test strip. See the README.
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}

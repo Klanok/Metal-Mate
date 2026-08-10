@@ -66,7 +66,28 @@ core but not yet surfaced in the UI.
   before trusting a flat pattern — `kFromFlatLength()` and `withBendRow()` are
   the workflow.
 
-## Getting started
+## Installing
+
+**Download an installer** from the [Releases page](../../releases) — a `.exe`
+for Windows, `.dmg` for macOS, `.AppImage` or `.deb` for Linux. Nothing else
+needs installing; the app is self-contained.
+
+Releases are cut by pushing a tag, which builds each installer on its own
+operating system and attaches them to a draft release:
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+The Actions tab can also run the release workflow by hand, which is the way to
+produce a build to test without minting a version number.
+
+> The installers are **not code signed**, because a certificate costs real
+> money and there are two users. Windows SmartScreen warns on first run —
+> *More info* then *Run anyway*. macOS needs right-click then *Open* the first
+> time. Both are one-off, per machine.
+
+## Developing
 
 ```bash
 npm install
@@ -87,6 +108,11 @@ development packages:
 sudo apt-get install libwebkit2gtk-4.1-dev libsoup-3.0-dev \
   libjavascriptcoregtk-4.1-dev librsvg2-dev patchelf
 ```
+
+`npm run tauri build` produces an installer in
+`app/src-tauri/target/release/bundle/`, for the operating system you run it on
+— a Windows `.exe` has to be built on Windows, which is why releases go
+through CI rather than one developer's machine.
 
 ## The pipeline
 
