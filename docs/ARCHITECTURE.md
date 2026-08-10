@@ -58,7 +58,9 @@ FaceBendGraph
 - **Folding (3D) = the same traversal** with rotations. A fold/unfold animation slider is nearly free.
 - No general B-rep kernel is needed. This keeps the whole system small enough for a two-person user base and AI-assisted development to maintain.
 
-**Corners** (two flanges meeting, e.g. a benchtop end cap meeting the front edge) live *alongside* the graph as `CornerJoint` records referencing two face edges, with a treatment: `weld_gap(g)` (default for stainless — cut back both flanges by g, welded and polished in the shop) or `tab_slot(params)` (self-fixturing for the canopy work later). Corner treatment only modifies the 2D profiles at unfold time; it never adds graph edges, so the tree property is preserved.
+**Corners** (two flanges meeting, e.g. a benchtop end cap meeting the front edge) live *alongside* the graph as `CornerJoint` records referencing two face edges, with a treatment: `weld-gap(g)` (default for stainless — cut back both flanges by g/2 each, welded and polished in the shop) or `tab-slot(params)` (self-fixturing for the canopy work). Corner treatment only modifies the 2D profiles at unfold time; it never adds graph edges, so the tree property is preserved.
+
+*(Built: `core/src/model/corner.ts`, applied at the top of `unfold`. The two edges mate **antiparallel**, the same convention bend lines follow, which is what lines a tab up with its slot. `checkCorners` runs inside `checkGraph`, so a joint whose edges are different lengths — they do not butt — stops the unfold rather than developing a part that cannot be made. Joints so far are between two flanges of **one** part; joints between separate parts need an assembly transform, which does not exist yet, though the treatment geometry is identical either way. The slot inset has no correct default — it depends on how the panels sit together — so it defaults to leaving one thickness of land and says so.)*
 
 ---
 
