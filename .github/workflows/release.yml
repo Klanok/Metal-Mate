@@ -8,6 +8,11 @@ name: Release
 #   git tag v0.1.0 && git push origin v0.1.0
 # or run this workflow by hand from the Actions tab, which is useful for
 # producing a build to test without minting a version number.
+#
+# The release record is made once, by its own job, before any building starts.
+# The three platform builds then upload into it by id. Doing it the other way —
+# each build looking for the release and creating it if missing — raced and
+# produced two drafts for one tag.
 
 on:
   push:
@@ -21,7 +26,81 @@ on:
         default: 'v0.0.0-dev'
 
 jobs:
+  # One job owns the release record, so the three build jobs never race to
+  # create it. They used to each "look for the draft, create it if missing",
+  # which worked by luck until Linux and macOS checked at the same moment and
+  # made two drafts for one tag, with the five installers split between them.
+  create-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      release_id: ${{ steps.release.outputs.result }}
+    steps:
+      - uses: actions/github-script@v7
+        id: release
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        with:
+          script: |
+            const tag = process.env.TAG
+            const releases = await github.paginate(github.rest.repos.listReleases, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100,
+            })
+            const existing = releases.filter((r) => r.tag_name === tag)
+
+            // Re-cutting a version somebody already has is how two people end
+            // up with different software under one number. Refuse it here
+            // rather than swapping the assets underneath them.
+            const published = existing.find((r) => !r.draft)
+            if (published !== undefined) {
+              core.setFailed(
+                `${tag} is already published. Bump the version rather than replacing binaries behind a number that is already out.`,
+              )
+              return
+            }
+            if (existing.length > 1) {
+              core.setFailed(
+                `there are ${existing.length} drafts for ${tag}; delete all but one before building, or the assets will be split across them`,
+              )
+              return
+            }
+            if (existing.length === 1) {
+              core.info(`reusing draft ${existing[0].id} for ${tag}`)
+              return existing[0].id
+            }
+
+            const { data } = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: tag,
+              target_commitish: context.sha,
+              name: `Metal Mate ${tag}`,
+              draft: true,
+              prerelease: false,
+              body: [
+                'Download the installer for your machine below.',
+                '',
+                '- **Windows** — `.exe` (or `.msi` to deploy through group policy)',
+                '- **macOS** — `.dmg`',
+                '- **Linux** — `.AppImage` (portable) or `.deb`',
+                '',
+                'These builds are **not code signed**. Windows SmartScreen will warn',
+                'on first run: choose *More info* then *Run anyway*. macOS will need',
+                'right-click then *Open* the first time.',
+                '',
+                'Before trusting any flat pattern this produces, replace the',
+                'placeholder press brake with the real machine and calibrate the',
+                'bend allowance against a folded test strip. See the README.',
+              ].join('\n'),
+            })
+            core.info(`created draft ${data.id} for ${tag}`)
+            return data.id
+
   build:
+    needs: create-release
     permissions:
       contents: write
     strategy:
@@ -74,27 +153,13 @@ jobs:
       # the fabricator's machine, so run it rather than trusting the PR.
       - run: npm test
 
+      # Uploading into a release that already exists, by id. With `releaseId`
+      # set, the action does no find-or-create of its own, so there is nothing
+      # left for the three platforms to race over.
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: app
-          tagName: ${{ github.event.inputs.tag || github.ref_name }}
-          releaseName: 'Metal Mate ${{ github.event.inputs.tag || github.ref_name }}'
-          releaseBody: |
-            Download the installer for your machine below.
-
-            - **Windows** — `.exe` (or `.msi` to deploy through group policy)
-            - **macOS** — `.dmg`
-            - **Linux** — `.AppImage` (portable) or `.deb`
-
-            These builds are **not code signed**. Windows SmartScreen will warn
-            on first run: choose *More info* then *Run anyway*. macOS will need
-            right-click then *Open* the first time.
-
-            Before trusting any flat pattern this produces, replace the
-            placeholder press brake with the real machine and calibrate the
-            bend allowance against a folded test strip. See the README.
-          releaseDraft: true
-          prerelease: false
+          releaseId: ${{ needs.create-release.outputs.release_id }}
           args: ${{ matrix.args }}
