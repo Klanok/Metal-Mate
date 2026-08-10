@@ -13,10 +13,10 @@ respect.
 
 ## Status
 
-The domain core and the desktop shell are both built. 157 tests pass, plus
-9 browser tests against the built bundle.
+The domain core and the desktop shell are both built. 169 tests pass, plus
+10 browser tests against the built bundle.
 
-**Working today** (`core/`, 141 tests):
+**Working today** (`core/`, 153 tests):
 
 | Area | State |
 |---|---|
@@ -28,12 +28,12 @@ The domain core and the desktop shell are both built. 157 tests pass, plus
 | Materials and bend tables | 304/316, aluminium, Zincalume, mild steel; calibration back-solve from a measured test strip |
 | Machine profile | bed, tonnage, die rack, throat, open height, thickness limits |
 | Validation | 14 rules, each with a passing and a failing fixture; errors block export |
-| Benchtop template | an edge on any of the four sides (square drop / drop-and-return / boxed / upstand), corner relief where two folds meet, sink, hob and tap cutouts |
+| Benchtop template | an edge on any of the four sides (square drop / drop-and-return / boxed / upstand), corners that close and weld (45° mitred returns) or relieve, sink, hob and tap cutouts |
 | DXF R12 export | arcs as bulges, layer mapping via export profiles, golden-file tested |
 | DXF import | reader plus healing (chains loose lines and arcs into closed loops) |
 | Project files | JSON payload, schema version, migration seam |
 
-**The app** (`app/`, Tauri 2 + React + Three.js, 16 unit + 9 browser tests):
+**The app** (`app/`, Tauri 2 + React + Three.js, 16 unit + 10 browser tests):
 
 | Area | State |
 |---|---|
@@ -93,8 +93,8 @@ produce a build to test without minting a version number.
 
 ```bash
 npm install
-npm test          # 157 tests
-npm run test:ui -w @metal-mate/app   # 9 browser tests on the built bundle
+npm test          # 169 tests
+npm run test:ui -w @metal-mate/app   # 10 browser tests on the built bundle
 npm run typecheck
 npm run dev       # the UI in a browser, no Rust toolchain needed
 npm run tauri dev # the real desktop app

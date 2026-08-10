@@ -60,10 +60,32 @@ test.describe('under the desktop content security policy', () => {
     }
 
     await expect(page.getByTestId('bend-table').locator('tbody tr')).toHaveCount(4);
-    // Four corners now need relieving, so the control for it appears.
-    await expect(page.getByTestId('corner-relief')).toBeVisible();
+    // Four corners are now in play, so the corner controls appear.
+    await expect(page.getByTestId('corner-editor')).toBeVisible();
     await expect(page.getByTestId('verdict')).toContainText('Ready to export');
     await expect(page.getByTestId('export-dxf')).toBeEnabled();
+  });
+
+  test('corners close by default and can be opened back up', async ({ page }) => {
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
+    await expect(page.getByTestId('corner-editor')).toHaveCount(0);
+
+    // Fold both ends down. The default splashback still folds up, so the two
+    // front corners close and the two back ones cannot.
+    for (const side of ['left', 'right']) {
+      await page.getByTestId(`edge-${side}`).locator('select').selectOption('square-drop');
+    }
+    const corners = page.getByTestId('corner-editor');
+    await expect(corners).toContainText('2 corners close up');
+    await expect(corners).toContainText('2 corners cannot close');
+    await expect(corners.locator('.field.number', { hasText: 'Weld gap' })).toBeVisible();
+    await expect(corners.locator('.field.number', { hasText: 'Relief notch' })).toBeVisible();
+
+    await corners.locator('select').selectOption('relief');
+    await expect(corners).not.toContainText('close up');
+    await expect(corners.locator('.field.number', { hasText: 'Weld gap' })).toHaveCount(0);
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export');
   });
 
   test('a left end can fold up as well as down', async ({ page }) => {

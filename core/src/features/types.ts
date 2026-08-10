@@ -44,6 +44,20 @@ export interface EdgeFlangeFeature {
   readonly insetStartMm?: number;
   /** Pull the flange back from the end of the edge, mm. */
   readonly insetEndMm?: number;
+  /**
+   * Cut the start end of the flange at an angle instead of square, degrees.
+   *
+   * 0 is a square end. A positive angle rakes the cut back toward the middle of
+   * the flange, so the tip is shorter than the root — 45 is the mitre that lets
+   * two flanges meeting at a right-angled corner close against each other
+   * instead of overlapping. Negative flares the end outward.
+   *
+   * "Start" is the end of the flange that came from the start of its parent
+   * edge, matching `insetStartMm` and the `start` named edge.
+   */
+  readonly mitreStartDeg?: number;
+  /** Cut the end end of the flange at an angle instead of square, degrees. */
+  readonly mitreEndDeg?: number;
   /** Pin a V-die instead of letting the machine profile choose. */
   readonly dieWidthMm?: number;
   /** Force a bend allowance, bypassing the material and bend table. */

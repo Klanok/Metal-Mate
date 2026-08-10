@@ -11,12 +11,13 @@ import type {
   BenchtopCutout,
   BenchtopEdges,
   BenchtopParams,
+  CornerStyle,
   EdgeParams,
   EdgeStyle,
   Material,
   Side,
 } from '@metal-mate/core';
-import { NO_EDGE, SIDES, resolveEdges } from '@metal-mate/core';
+import { NO_EDGE, SIDES, cornerTreatments, resolveEdges } from '@metal-mate/core';
 import { NumberField } from './NumberField.js';
 
 export interface TemplatePanelProps {
@@ -134,21 +135,7 @@ export function TemplatePanel({ params, materials, onChange }: TemplatePanelProp
         />
       ))}
 
-      {countFlangedCorners(edges) > 0 && (
-        <fieldset data-testid="corner-relief">
-          <legend>Corners</legend>
-          <p className="muted">
-            Where two folded sides meet, the top is notched so the two bends do not run into each
-            other and tear the corner.
-          </p>
-          <NumberField
-            label="Relief notch"
-            value={params.cornerReliefMm ?? defaultRelief(params)}
-            step={0.5}
-            onChange={(v) => patch({ cornerReliefMm: v })}
-          />
-        </fieldset>
-      )}
+      <CornerEditor params={params} edges={edges} onPatch={patch} />
 
       <CutoutEditor cutouts={params.cutouts} onChange={(cutouts) => patch({ cutouts })} />
     </section>
@@ -159,15 +146,74 @@ function defaultRelief(params: BenchtopParams): number {
   return Math.max(2 * params.thicknessMm, params.bendRadiusMm + params.thicknessMm);
 }
 
-function countFlangedCorners(edges: BenchtopEdges): number {
-  const flanged = (s: Side): boolean => edges[s].style !== 'none' && edges[s].heightMm > 0;
-  const pairs: [Side, Side][] = [
-    ['front', 'left'],
-    ['front', 'right'],
-    ['right', 'back'],
-    ['back', 'left'],
-  ];
-  return pairs.filter(([a, b]) => flanged(a) && flanged(b)).length;
+/**
+ * The corner controls, which only appear once two folded sides actually meet.
+ *
+ * What is on offer depends on what the part needs: a weld gap where corners
+ * close, a notch size where they cannot. Corners whose two sides fold opposite
+ * ways are always relieved, so a part can legitimately want both fields at
+ * once — a benchtop with folded ends and a splashback is exactly that case.
+ */
+function CornerEditor({
+  params,
+  edges,
+  onPatch,
+}: {
+  params: BenchtopParams;
+  edges: BenchtopEdges;
+  onPatch: (next: Partial<BenchtopParams>) => void;
+}): JSX.Element | null {
+  const style = params.cornerStyle ?? 'mitre';
+  const treatments = Object.values(cornerTreatments(edges, style));
+  const mitred = treatments.filter((t) => t === 'mitre').length;
+  const relieved = treatments.filter((t) => t === 'relief').length;
+  if (mitred + relieved === 0) return null;
+
+  return (
+    <fieldset data-testid="corner-editor">
+      <legend>Corners</legend>
+      <label className="field">
+        <span>Where sides meet</span>
+        <select
+          value={style}
+          onChange={(e) => onPatch({ cornerStyle: e.target.value as CornerStyle })}
+        >
+          <option value="mitre">Close and weld</option>
+          <option value="relief">Leave open (relief notch)</option>
+        </select>
+      </label>
+      <p className="muted">
+        {mitred > 0 && (
+          <>
+            {mitred} corner{mitred === 1 ? '' : 's'} close up, ready to weld and grind. Returns are
+            mitred at 45° so they meet on the diagonal instead of overlapping.{' '}
+          </>
+        )}
+        {relieved > 0 && (
+          <>
+            {relieved} corner{relieved === 1 ? '' : 's'} {mitred > 0 ? 'cannot close — one side folds up and the other down — so they are' : 'are'}{' '}
+            notched instead.
+          </>
+        )}
+      </p>
+      {mitred > 0 && (
+        <NumberField
+          label="Weld gap"
+          value={params.cornerGapMm ?? params.thicknessMm}
+          step={0.1}
+          onChange={(v) => onPatch({ cornerGapMm: v })}
+        />
+      )}
+      {relieved > 0 && (
+        <NumberField
+          label="Relief notch"
+          value={params.cornerReliefMm ?? defaultRelief(params)}
+          step={0.5}
+          onChange={(v) => onPatch({ cornerReliefMm: v })}
+        />
+      )}
+    </fieldset>
+  );
 }
 
 function EdgeEditor({

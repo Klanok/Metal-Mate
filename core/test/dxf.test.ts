@@ -250,6 +250,22 @@ describe('golden files', () => {
         },
       },
     },
+    {
+      // Four fold-down edges with a return under each, so every corner closes
+      // and every return carries a 45 degree mitre. This is the case where a
+      // wrong cut shows up as metal that will not fold together on the bench.
+      name: 'benchtop-mitred-returns',
+      params: {
+        ...MVP,
+        cutouts: [],
+        edges: {
+          front: { style: 'drop-and-return', heightMm: 40, returnMm: 25 },
+          back: { style: 'drop-and-return', heightMm: 40, returnMm: 25 },
+          left: { style: 'drop-and-return', heightMm: 40, returnMm: 25 },
+          right: { style: 'drop-and-return', heightMm: 40, returnMm: 25 },
+        },
+      },
+    },
   ];
 
   for (const { name, params } of cases) {
