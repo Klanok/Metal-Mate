@@ -11,14 +11,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import wasmUrl from 'clipper2-wasm/dist/es/clipper2z.wasm?url';
 import type { BenchtopParams, BuildResult, MachineProfile, Material } from '@metal-mate/core';
-import {
-  BUILT_IN_MATERIALS,
-  DEFAULT_BENCHTOP,
-  GENERIC_2500_40T,
-  benchtopPart,
-  build,
-  initBooleans,
-} from '@metal-mate/core';
+import { DEFAULT_BENCHTOP, benchtopPart, build, initBooleans } from '@metal-mate/core';
 
 export interface BuildState {
   /** Null until the boolean kernel has loaded. */
@@ -31,9 +24,6 @@ export interface BuildState {
   readonly error: string | null;
   readonly ready: boolean;
 }
-
-export const MACHINES: readonly MachineProfile[] = [GENERIC_2500_40T];
-export const MATERIALS: readonly Material[] = BUILT_IN_MATERIALS;
 
 export function useBooleanKernel(): { ready: boolean; error: string | null } {
   const [ready, setReady] = useState(false);
@@ -57,18 +47,23 @@ export function useBooleanKernel(): { ready: boolean; error: string | null } {
 export function useBenchtopBuild(
   params: BenchtopParams,
   machine: MachineProfile,
+  /**
+   * The shop's materials, which override the built-in ones. Calibrated bend
+   * tables live here, so this is how a measured K reaches the flat pattern.
+   */
+  materials: readonly Material[],
   foldFraction: number,
   ready: boolean,
 ): BuildState {
   return useMemo(() => {
     if (!ready) return { result: null, error: null, ready: false };
     try {
-      const result = build(benchtopPart(params), { machine, foldFraction });
+      const result = build(benchtopPart(params), { machine, materials, foldFraction });
       return { result, error: null, ready: true };
     } catch (e) {
       return { result: null, error: messageOf(e), ready: true };
     }
-  }, [params, machine, foldFraction, ready]);
+  }, [params, machine, materials, foldFraction, ready]);
 }
 
 function messageOf(e: unknown): string {

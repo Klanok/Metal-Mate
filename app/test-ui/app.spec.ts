@@ -149,6 +149,96 @@ for (const deviceScaleFactor of [1, 2]) {
   });
 }
 
+test.describe('shop settings', () => {
+  test('the press brake can be edited and changes what validation says', async ({ page }) => {
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
+    await expect(page.getByTestId('machine-caveat')).toBeVisible();
+
+    // A 1800 mm bench fits a 2500 mm bed. Shrink the bed and it must not.
+    await page.getByTestId('open-settings').click();
+    await page
+      .getByTestId('settings-dialog')
+      .locator('.field.number', { hasText: 'Bed length' })
+      .locator('input')
+      .fill('1500');
+    await page.getByTestId('settings-close').click();
+
+    await expect(page.getByTestId('verdict')).toContainText('Export blocked');
+    await expect(page.getByTestId('export-dxf')).toBeDisabled();
+  });
+
+  test('the placeholder caveat clears only when the machine is confirmed', async ({ page }) => {
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
+
+    await page.getByTestId('open-settings').click();
+    await expect(page.getByTestId('placeholder-warning')).toBeVisible();
+    await page.getByTestId('machine-name').fill('Amada HFE 3-file');
+    await page.getByTestId('machine-confirmed').check();
+    await expect(page.getByTestId('placeholder-warning')).toHaveCount(0);
+    await page.getByTestId('settings-close').click();
+
+    await expect(page.getByTestId('machine-caveat')).toHaveCount(0);
+    // The brake's name is what the toolbar reports checking against.
+    await expect(page.locator('.brand')).toContainText('Amada HFE 3-file');
+  });
+
+  test('a broken machine is reported and blocks confirming it', async ({ page }) => {
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
+    await page.getByTestId('open-settings').click();
+
+    await page.getByTestId('die-widths').fill('10, 10');
+    await expect(page.getByTestId('machine-problems')).toContainText('same V opening twice');
+    await expect(page.getByTestId('machine-confirmed')).toBeDisabled();
+  });
+
+  test('settings survive a reload', async ({ page }) => {
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
+    await page.getByTestId('open-settings').click();
+    await page.getByTestId('machine-name').fill('Durma AD-S');
+    await page.getByTestId('settings-close').click();
+
+    await page.reload({ waitUntil: 'networkidle' });
+    await expect(page.locator('.brand')).toContainText('Durma AD-S');
+  });
+
+  test('a test strip solves for K and joins the bend table', async ({ page }) => {
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
+    // Where the allowance came from, before any calibration exists.
+    await expect(page.getByTestId('bend-table')).toContainText('material-default');
+
+    await page.getByTestId('open-settings').click();
+    await page.getByRole('button', { name: 'Bend calibration' }).click();
+    await expect(page.getByTestId('calibration-k')).toHaveText(/0\.\d+/);
+    await page.getByTestId('calibration-save').click();
+    await expect(page.getByTestId('bend-table-rows')).toBeVisible();
+    await page.getByTestId('settings-close').click();
+
+    // The measured row now drives the flat pattern, which is the whole point.
+    await expect(page.getByTestId('bend-table')).toContainText('bend-table-deduction');
+  });
+
+  test('a mismeasured strip is explained rather than silently accepted', async ({ page }) => {
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
+    await page.getByTestId('open-settings').click();
+    await page.getByRole('button', { name: 'Bend calibration' }).click();
+
+    // Legs measured to the outside of the radius instead of the apex.
+    await page
+      .getByTestId('settings-dialog')
+      .locator('.field.number', { hasText: 'Blank length' })
+      .locator('input')
+      .fill('200');
+    await expect(page.getByTestId('calibration-result')).toContainText('apex');
+    await expect(page.getByTestId('calibration-save')).toBeDisabled();
+  });
+});
+
 test('the flat pattern draws arcs rather than polylines', async ({ page }) => {
   await page.goto(url, { waitUntil: 'networkidle' });
   await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });

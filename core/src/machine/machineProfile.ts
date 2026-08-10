@@ -36,6 +36,15 @@ export interface ThicknessLimit {
 export interface MachineProfile {
   readonly id: string;
   readonly name: string;
+  /**
+   * True while these numbers are guesses rather than a real machine's.
+   *
+   * Every tonnage and minimum-flange result in the validation report is only
+   * as good as this record, so the report says so out loud whenever the flag is
+   * set. Clearing it is a deliberate act: somebody has to have checked the bed,
+   * the tonnage chart and the die rack against the machine on the floor.
+   */
+  readonly placeholder?: boolean;
   /** Longest bend line the machine can form, mm. */
   readonly bedLengthMm: number;
   /** Maximum total force, tonnes. */
@@ -58,7 +67,8 @@ export interface MachineProfile {
 
 export const GENERIC_2500_40T: MachineProfile = {
   id: 'generic-2500-40t',
-  name: 'Generic 2500 mm / 40 t press brake (PLACEHOLDER — replace with the real machine)',
+  name: 'Generic 2500 mm / 40 t press brake',
+  placeholder: true,
   bedLengthMm: 2500,
   maxTonnes: 40,
   maxTonnesPerMetre: 30,
@@ -79,6 +89,85 @@ export const GENERIC_2500_40T: MachineProfile = {
   thicknessLimits: [{ min: 0.5, max: 6 }],
   dieRadiusFactor: 0.16,
 };
+
+export interface MachineProblem {
+  /** Which field is wrong, as the editor names it. */
+  readonly field: string;
+  readonly message: string;
+}
+
+/**
+ * Structural check on a machine record.
+ *
+ * This is not "is this the right machine" — nothing here can know that. It is
+ * "could any machine be like this", so a half-typed profile fails loudly at the
+ * point of editing instead of quietly producing a tonnage of Infinity three
+ * layers down.
+ */
+export function checkMachineProfile(m: MachineProfile): MachineProblem[] {
+  const problems: MachineProblem[] = [];
+  const positive = (field: string, value: number, what: string): void => {
+    if (!Number.isFinite(value) || value <= 0) {
+      problems.push({ field, message: `${what} must be a positive number of mm` });
+    }
+  };
+
+  if (m.name.trim() === '') problems.push({ field: 'name', message: 'give the machine a name' });
+  positive('bedLengthMm', m.bedLengthMm, 'bed length');
+  positive('throatDepthMm', m.throatDepthMm, 'throat depth');
+  positive('openHeightMm', m.openHeightMm, 'open height');
+  if (!Number.isFinite(m.backgaugeMaxMm) || m.backgaugeMaxMm < 0) {
+    problems.push({ field: 'backgaugeMaxMm', message: 'backgauge reach cannot be negative' });
+  }
+  if (!Number.isFinite(m.maxTonnes) || m.maxTonnes <= 0) {
+    problems.push({ field: 'maxTonnes', message: 'total tonnage must be a positive number' });
+  }
+  if (!Number.isFinite(m.maxTonnesPerMetre) || m.maxTonnesPerMetre <= 0) {
+    problems.push({
+      field: 'maxTonnesPerMetre',
+      message: 'tonnage per metre must be a positive number',
+    });
+  }
+
+  if (m.dies.length === 0) {
+    problems.push({ field: 'dies', message: 'the rack needs at least one V die' });
+  }
+  if (m.dies.some((d) => !Number.isFinite(d.width) || d.width <= 0)) {
+    problems.push({ field: 'dies', message: 'every V opening must be a positive number of mm' });
+  }
+  const widths = m.dies.map((d) => d.width);
+  if (new Set(widths).size !== widths.length) {
+    problems.push({ field: 'dies', message: 'the rack lists the same V opening twice' });
+  }
+
+  if (m.punchRadii.length === 0) {
+    problems.push({ field: 'punchRadii', message: 'list at least one punch nose radius' });
+  }
+  if (m.punchRadii.some((r) => !Number.isFinite(r) || r <= 0)) {
+    problems.push({ field: 'punchRadii', message: 'every punch radius must be positive' });
+  }
+
+  if (m.thicknessLimits.length === 0) {
+    problems.push({ field: 'thicknessLimits', message: 'set a thickness range the machine takes' });
+  }
+  for (const limit of m.thicknessLimits) {
+    if (!Number.isFinite(limit.min) || limit.min <= 0 || limit.max <= limit.min) {
+      problems.push({
+        field: 'thicknessLimits',
+        message: `thickness range ${limit.min}–${limit.max} mm is not a range`,
+      });
+    }
+  }
+
+  if (!Number.isFinite(m.dieRadiusFactor) || m.dieRadiusFactor <= 0 || m.dieRadiusFactor >= 1) {
+    problems.push({
+      field: 'dieRadiusFactor',
+      message: 'die radius factor is a fraction of the V opening, so it sits between 0 and 1 (0.16 is typical)',
+    });
+  }
+
+  return problems;
+}
 
 export function minFlangeFor(die: VDie): number {
   return die.minFlange ?? 0.7 * die.width;

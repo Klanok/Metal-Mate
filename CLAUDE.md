@@ -177,10 +177,16 @@ Carried from the architecture doc, still unanswered. Do not invent answers:
 
 - Which CAM/laser software does the fabricator run? This locks the export spec.
   Get one DXF the laser already accepts and treat it as the reference.
-- Press brake make/model and die rack. `GENERIC_2500_40T` is a **placeholder**
-  and is labelled as one; every tonnage and minimum-flange number in the
-  validation report is estimated until it is replaced.
+- Press brake make/model and die rack. Settings → Press brake now edits all of
+  it — bed, tonnage, die rack, throat, open height, thickness range — and the
+  record carries a `placeholder` flag that only a person can clear. Until
+  somebody does, every tonnage and minimum-flange number in the validation
+  report is an estimate and says so. **The numbers themselves are still
+  unanswered.**
 - Coved splashback junctions: annotate-only in v1. Confirm the shop rolls these
   after folding.
 - Standard sink cutout corner radius (10 mm?) and its minimum distance from a
   bend zone.
+
+- Weld gap at a closed corner. Defaults to one thickness, derived from the
+  geometry rather than from what the welder wants. Ask the shop.
