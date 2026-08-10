@@ -108,7 +108,10 @@ A wizard/panel that owns a parameter set and emits a feature tree:
 - Plan size (L × D), thickness (0.9–1.6 mm typical), material
 - **Edge profile, per side**: front, back, left and right each choose from a small library — none, square fold-down, fold-down + return under, full boxed edge, or fold-up — each a predefined flange chain with editable drop/return dimensions. *(Built: `edges` in `BenchtopParams`. The older `frontEdge`/`splashback` fields are still read so existing projects load, and setting a side both ways is rejected rather than silently resolved.)*
 - **Splashback**: the back side with style `upstand` — the same flange chain as any other edge, keeping the friendly `splashback` feature name. Separate-part splashbacks (a second part in the same document) are still v1.x.
-- **Corner relief**: where two folded sides meet, the top face is notched by `cornerReliefMm` so the two bend zones do not run into each other. Defaults to `max(2T, R+T)`, which also clears the bend-relief check's probe. *(Built. Corner **joints** — weld gap, tab-and-slot — remain v1.x.)*
+- **Corners**: what happens where two folded sides meet depends on which way they fold.
+  - *Same way* — the corner closes (`cornerStyle: 'mitre'`, the default). The two flanges run to the corner less half of `cornerGapMm` each, leaving a seam to weld and grind; the gap defaults to one thickness, because profiles lie on the neutral surface and the real material would otherwise interlock by about half a thickness. Any link in the chain that ends up horizontal — the return under a fold-down edge — is cut at 45°, since two horizontal strips meeting at a right angle overlap in a square otherwise. An upstand above a mitred return inherits the shortened tip edge and needs no rule of its own.
+  - *Opposite ways* — an upstand and a drop cannot meet, so that corner is relieved with a notch of `cornerReliefMm` (default `max(2T, R+T)`, which also clears the bend-relief check's probe) and each bend line ends in fresh air.
+  *(Both built. Mitre angles live on `EdgeFlangeFeature` as `mitreStartDeg`/`mitreEndDeg`, so they are a property of a flange rather than a benchtop concept. Tab-and-slot corners remain v1.x.)*
 - **Cutouts**: sink/hob rectangles with corner radius, tap holes, positioned from edges
 - Grain direction annotation (length-wise by default)
 

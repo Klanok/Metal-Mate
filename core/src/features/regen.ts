@@ -9,6 +9,7 @@
 import { type Loop, polygon } from '../geometry/loop.js';
 import { type Profile, profile } from '../geometry/profile.js';
 import { type Vec2, add, normalize, scale, sub } from '../geometry/vec2.js';
+import { toRadians } from '../units.js';
 import { bendId as makeBendId, faceId as makeFaceId, type FaceId } from '../ids.js';
 import {
   type Bend,
@@ -100,7 +101,10 @@ export function regenerate(part: Part): RegenResult {
  * (0,0)->(L,0) — the direction convention the unfold engine relies on.
  *
  * The insets trim the flange back from each end of the parent edge, which is
- * how a flange stops short of a corner.
+ * how a flange stops short of a corner. The mitres rake the ends instead of
+ * cutting them square, which is how two flanges meeting at a corner close
+ * against each other. Both leave the bend line itself alone except for the
+ * insets, so the flange is still a rigid body hinged on a straight line.
  */
 function buildEdgeFlange(
   feature: EdgeFlangeFeature,
@@ -126,8 +130,22 @@ function buildEdgeFlange(
     p1: sub(parentEdge.p1, scale(dir, insetEnd)),
   };
 
+  const length = feature.lengthMm;
+  // How far each mitre cuts across the tip. The start end is at local x =
+  // width, so its rake moves the tip corner inward (negative x); the end end is
+  // at local x = 0, so its rake moves that corner outward (positive x).
+  const rakeStart = mitreRake(feature.mitreStartDeg, length, feature.id, 'start');
+  const rakeEnd = mitreRake(feature.mitreEndDeg, length, feature.id, 'end');
+  const tipStartX = width - rakeStart;
+  const tipEndX = rakeEnd;
+  if (tipStartX - tipEndX <= 0) {
+    throw new Error(
+      `feature ${feature.id}: the mitres meet before the tip — a ${length.toFixed(1)} mm flange on a ${width.toFixed(1)} mm edge cannot carry them`,
+    );
+  }
+
   const id = makeFaceId(feature.id);
-  const outer = rectangleFace(width, feature.lengthMm);
+  const outer = flangeFace(width, length, tipStartX, tipEndX);
   const face: Face = {
     id,
     profile: profile(outer),
@@ -135,10 +153,12 @@ function buildEdgeFlange(
     edges: new Map<string, DirectedEdge>([
       // `root` is the bend edge itself; `tip` the free edge; `start` and `end`
       // the two sides, named for the ends of the parent edge they came from.
+      // A mitre shortens `tip`, so anything flanged off it — the upstand of a
+      // boxed edge — inherits the mitre without having to know about it.
       ['root', { p0: { x: 0, y: 0 }, p1: { x: width, y: 0 } }],
-      ['tip', { p0: { x: width, y: feature.lengthMm }, p1: { x: 0, y: feature.lengthMm } }],
-      ['start', { p0: { x: width, y: 0 }, p1: { x: width, y: feature.lengthMm } }],
-      ['end', { p0: { x: 0, y: feature.lengthMm }, p1: { x: 0, y: 0 } }],
+      ['tip', { p0: { x: tipStartX, y: length }, p1: { x: tipEndX, y: length } }],
+      ['start', { p0: { x: width, y: 0 }, p1: { x: tipStartX, y: length } }],
+      ['end', { p0: { x: tipEndX, y: length }, p1: { x: 0, y: 0 } }],
     ]),
     ...(feature.label !== undefined ? { label: feature.label } : {}),
   };
@@ -162,12 +182,40 @@ function buildEdgeFlange(
   return { face, bend };
 }
 
-function rectangleFace(width: number, height: number): Loop {
+/**
+ * How far a mitre cuts across the tip of a flange, mm.
+ *
+ * The angle is measured from a square cut, so 0 rakes nothing and 45 rakes back
+ * by exactly the flange's own length — the mitre that closes a right-angled
+ * corner. Past 85 degrees the tangent runs away, and an angle that steep is a
+ * modelling mistake rather than something a brake could form.
+ */
+function mitreRake(
+  angleDeg: number | undefined,
+  length: number,
+  featureId: string,
+  which: 'start' | 'end',
+): number {
+  if (angleDeg === undefined || angleDeg === 0) return 0;
+  if (Math.abs(angleDeg) >= 85) {
+    throw new Error(
+      `feature ${featureId}: ${which} mitre of ${angleDeg} degrees is too steep to cut; keep it under 85`,
+    );
+  }
+  return Math.tan(toRadians(angleDeg)) * length;
+}
+
+/**
+ * The flange outline: a rectangle when both ends are square, a trapezoid once
+ * either end is mitred. Written as one polygon rather than a rectangle plus a
+ * trim so the vertex count never depends on whether a mitre happens to be zero.
+ */
+function flangeFace(width: number, length: number, tipStartX: number, tipEndX: number): Loop {
   const pts: Vec2[] = [
     { x: 0, y: 0 },
     { x: width, y: 0 },
-    { x: width, y: height },
-    { x: 0, y: height },
+    { x: tipStartX, y: length },
+    { x: tipEndX, y: length },
   ];
   return polygon(pts);
 }

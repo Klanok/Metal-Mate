@@ -11,9 +11,17 @@
  * lengths by subtracting the outside setback at every fold, which is what the
  * face-bend graph wants.
  *
- * Any of the four sides can carry an edge. Where two flanged sides meet, the
- * top face is notched at the corner: without that the two bend lines would run
- * into each other's bend zone and the metal would tear as it is formed.
+ * Any of the four sides can carry an edge. What happens where two of them meet
+ * depends on which way they fold:
+ *
+ *  - **Both the same way** — the corner closes. The two flanges run right up to
+ *    it and meet, leaving a seam to weld and grind, which is how a stainless
+ *    benchtop corner is actually made. Anything in the chain that ends up
+ *    horizontal (the return under a fold-down edge) is mitred at 45 degrees,
+ *    because two horizontal strips meeting at a right angle overlap otherwise —
+ *    the same cut a picture frame gets.
+ *  - **Opposite ways** — one up and one down cannot meet, so the corner is
+ *    relieved with a notch instead, and each bend line ends in fresh air.
  */
 
 import { type Loop, circle, polygon, roundedRect } from '../geometry/loop.js';
@@ -55,6 +63,33 @@ export interface EdgeParams {
 export type BenchtopEdges = Readonly<Record<Side, EdgeParams>>;
 
 export const NO_EDGE: EdgeParams = { style: 'none', heightMm: 0 };
+
+/**
+ * What to do where two folded sides meet.
+ *
+ * `mitre` closes the corner so it can be welded; `relief` notches it open.
+ * Two sides folding opposite ways are always relieved — they cannot meet.
+ */
+export type CornerStyle = 'mitre' | 'relief';
+
+export type CornerName = 'front-left' | 'front-right' | 'back-right' | 'back-left';
+
+export type CornerTreatment = 'mitre' | 'relief' | 'none';
+
+/**
+ * The four corners, each named for the two sides that meet there.
+ *
+ * `startSide` is the side whose edge *starts* at this corner and `endSide` the
+ * one whose edge *ends* here, following the counter-clockwise boundary of the
+ * top face. That distinction is what tells a flange which of its own two ends
+ * is the one at this corner.
+ */
+export const CORNERS: readonly { name: CornerName; startSide: Side; endSide: Side }[] = [
+  { name: 'front-left', startSide: 'front', endSide: 'left' },
+  { name: 'front-right', startSide: 'right', endSide: 'front' },
+  { name: 'back-right', startSide: 'back', endSide: 'right' },
+  { name: 'back-left', startSide: 'left', endSide: 'back' },
+];
 
 /* ---------------------------------------------------------------- legacy -- */
 
@@ -117,8 +152,19 @@ export interface BenchtopParams {
   /** Edge treatment per side. Omitted sides are left open. */
   readonly edges?: Partial<BenchtopEdges>;
   /**
-   * Size of the notch cut where two flanged sides meet, mm. Omit for a
-   * sensible default; the two bend zones must not run into each other.
+   * What to do where two sides folding the same way meet. Defaults to `mitre`,
+   * which closes the corner for welding. Corners where the two sides fold
+   * opposite ways are relieved whatever this says.
+   */
+  readonly cornerStyle?: CornerStyle;
+  /**
+   * Gap left between the two flanges at a closed corner, mm. Omit for one
+   * thickness, which clears the material and leaves something to weld into.
+   */
+  readonly cornerGapMm?: number;
+  /**
+   * Size of the notch cut at a relieved corner, mm. Omit for a sensible
+   * default; the two bend zones must not run into each other.
    */
   readonly cornerReliefMm?: number;
   /** @deprecated Superseded by `edges.front`; still honoured if present. */
@@ -201,6 +247,33 @@ export function hasFlange(edge: EdgeParams): boolean {
   return edge.style !== 'none' && edge.heightMm > 0;
 }
 
+/** Which way a side folds. An upstand goes up; every other style goes down. */
+export function foldDirection(edge: EdgeParams): 'up' | 'down' {
+  return edge.style === 'upstand' ? 'up' : 'down';
+}
+
+/**
+ * What happens at each corner.
+ *
+ * Two sides folding the same way can close against each other. Two folding
+ * opposite ways cannot — the flanges go in different directions from the same
+ * point — so that corner is relieved regardless of what was asked for.
+ */
+export function cornerTreatments(
+  edges: BenchtopEdges,
+  style: CornerStyle = 'mitre',
+): Readonly<Record<CornerName, CornerTreatment>> {
+  const out = {} as Record<CornerName, CornerTreatment>;
+  for (const { name, startSide, endSide } of CORNERS) {
+    const a = edges[startSide];
+    const b = edges[endSide];
+    if (!hasFlange(a) || !hasFlange(b)) out[name] = 'none';
+    else if (foldDirection(a) !== foldDirection(b)) out[name] = 'relief';
+    else out[name] = style;
+  }
+  return out;
+}
+
 /* ------------------------------------------------------------------ build -- */
 
 /** Generate the feature tree for a benchtop. */
@@ -230,7 +303,10 @@ export function benchtopPart(params: BenchtopParams): Part {
   }
 
   const relief = params.cornerReliefMm ?? defaultCornerRelief(t, r);
-  const top = topFace(topWidth, topDepth, edges, relief);
+  const gap = params.cornerGapMm ?? defaultCornerGap(t);
+  if (gap < 0) throw new BenchtopParameterError('corner gap cannot be negative');
+  const corners = cornerTreatments(edges, params.cornerStyle ?? 'mitre');
+  const top = topFace(topWidth, topDepth, corners, relief);
 
   const topId = featureId('top');
   const features: Feature[] = [
@@ -244,7 +320,13 @@ export function benchtopPart(params: BenchtopParams): Part {
   ];
 
   for (const side of SIDES) {
-    features.push(...edgeFeatures(side, edges[side], params, setback));
+    const at = {
+      // A side's own start is the corner its edge leaves from, its end the
+      // corner its edge arrives at.
+      start: corners[CORNERS.find((c) => c.startSide === side)!.name],
+      end: corners[CORNERS.find((c) => c.endSide === side)!.name],
+    };
+    features.push(...edgeFeatures(side, edges[side], params, setback, at, gap));
   }
   features.push(...cutoutFeatures(params, edges, setback, top.origin));
 
@@ -270,6 +352,20 @@ function defaultCornerRelief(thickness: number, radius: number): number {
   return Math.max(2 * thickness, radius + thickness);
 }
 
+/**
+ * Weld gap at a closed corner, mm.
+ *
+ * Face profiles lie on the neutral surface, so two flanges whose profiles just
+ * touch would have their real material interlocking by roughly half a
+ * thickness at the corner. One thickness of gap clears that and leaves a seam
+ * of about half a thickness to weld into — for 1.2 mm stainless, a 0.6 mm gap,
+ * which is what a TIG weld wants. The shop may prefer another number; that is
+ * what `cornerGapMm` is for.
+ */
+function defaultCornerGap(thickness: number): number {
+  return thickness;
+}
+
 interface TopFace {
   readonly profile: Profile;
   readonly edges: Record<string, DirectedEdge>;
@@ -278,23 +374,26 @@ interface TopFace {
 }
 
 /**
- * The top face, notched at every corner where two flanged sides meet.
+ * The top face, notched only at the corners that are being relieved.
  *
- * Without the notch the two bend lines run into each other's bend zone: the
- * metal has nowhere to go as the second bend forms, and it tears. Notching also
- * means each bend line ends in fresh air, which is what the bend-relief check
- * looks for.
+ * A relieved corner has its two bend lines ending in fresh air, which is what
+ * the bend-relief check looks for and what stops the metal tearing when the
+ * second bend forms. A mitred corner is left square: the flanges close against
+ * each other there, so the top must run all the way out to meet them.
  */
-function topFace(width: number, depth: number, edges: BenchtopEdges, relief: number): TopFace {
-  const notch = (a: Side, b: Side): number =>
-    hasFlange(edges[a]) && hasFlange(edges[b]) ? relief : 0;
-  // Corners, named for the two sides that meet there.
-  const bl = notch('front', 'left');
-  const br = notch('front', 'right');
-  const tr = notch('right', 'back');
-  const tl = notch('back', 'left');
+function topFace(
+  width: number,
+  depth: number,
+  corners: Readonly<Record<CornerName, CornerTreatment>>,
+  relief: number,
+): TopFace {
+  const notch = (corner: CornerName): number => (corners[corner] === 'relief' ? relief : 0);
+  const bl = notch('front-left');
+  const br = notch('front-right');
+  const tr = notch('back-right');
+  const tl = notch('back-left');
 
-  if (relief * 2 >= Math.min(width, depth)) {
+  if (Math.max(bl, br, tr, tl) > 0 && relief * 2 >= Math.min(width, depth)) {
     throw new BenchtopParameterError(
       `corner relief of ${relief.toFixed(1)} mm does not fit a ${width.toFixed(0)} x ${depth.toFixed(0)} mm top`,
     );
@@ -353,13 +452,32 @@ function edgeFeatures(
   edge: EdgeParams,
   params: BenchtopParams,
   setback: number,
+  at: { start: CornerTreatment; end: CornerTreatment },
+  gap: number,
 ): EdgeFlangeFeature[] {
   if (!hasFlange(edge)) return [];
 
   const r = params.bendRadiusMm;
-  const direction = edge.style === 'upstand' ? ('up' as const) : ('down' as const);
+  const direction = foldDirection(edge);
   const common = { angleDeg: 90, direction, insideRadiusMm: r };
   const out: EdgeFlangeFeature[] = [];
+
+  // At a mitred corner the two flanges close against each other. Half the weld
+  // gap comes off each of them, so the seam is centred on the corner. A relieved
+  // corner needs nothing here: the top face is already notched, which shortens
+  // the bend line and the flange with it.
+  const halfGap = gap / 2;
+  const insets = {
+    ...(at.start === 'mitre' && halfGap > 0 ? { insetStartMm: halfGap } : {}),
+    ...(at.end === 'mitre' && halfGap > 0 ? { insetEndMm: halfGap } : {}),
+  };
+  // Only the links that end up horizontal need a mitre — two vertical flanges
+  // meeting at a right angle already butt along the corner line, but two
+  // horizontal ones overlap in a square unless each is cut back at 45.
+  const mitres = {
+    ...(at.start === 'mitre' ? { mitreStartDeg: 45 } : {}),
+    ...(at.end === 'mitre' ? { mitreEndDeg: 45 } : {}),
+  };
 
   // The splashback keeps its own name: it is what the people using this call
   // it, and the feature tree is meant to read like the part.
@@ -376,6 +494,7 @@ function edgeFeatures(
     edge: { faceId: faceId('top'), edgeName: side },
     lengthMm: rootLeg,
     ...common,
+    ...insets,
     label: rootLabel,
   });
 
@@ -393,6 +512,7 @@ function edgeFeatures(
       edge: { faceId: faceId(rootId), edgeName: 'tip' },
       lengthMm: returnLeg,
       ...common,
+      ...mitres,
       label: `${sideLabel(side)} return`,
     });
   }
