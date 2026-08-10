@@ -72,6 +72,18 @@ core but not yet surfaced in the UI.
   legs measured to the apex, and the blank length — and solves for K, then
   writes it into the material's bend table where the unfold engine picks it up.
 
+## Trying it without installing
+
+The app runs in a plain browser as well as under Tauri, so there is a web
+build at **https://klanok.github.io/Metal-Mate/** for showing someone the tool
+without an installer and a SmartScreen warning. Save and open fall back to a
+download and a file picker; everything else — the 3D view, the flat pattern,
+validation, DXF export — is the same code the desktop app runs.
+
+It is a demo, not a replacement, and it is a **public URL**. Take it down with
+Settings → Pages → Source → None, or by deleting
+`.github/workflows/pages.yml`.
+
 ## Installing
 
 **Download an installer** from the [Releases page](../../releases) — a `.exe`

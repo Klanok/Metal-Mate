@@ -6,6 +6,12 @@ const coreSrc = fileURLToPath(new URL('../core/src/index.ts', import.meta.url));
 
 // https://vite.dev/config/
 export default defineConfig({
+  // The desktop build serves from the bundle root, so the default is '/'.
+  // GitHub Pages serves the app from /<repo>/, which needs every asset URL —
+  // including the WASM kernel's — rewritten. The Pages workflow sets this;
+  // nothing else does, so the installer is unaffected by the existence of the
+  // web build.
+  base: process.env['PAGES_BASE'] ?? '/',
   plugins: [react()],
   resolve: {
     // Consume the core as TypeScript source rather than through the workspace
