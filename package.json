@@ -5,12 +5,15 @@
   "description": "Desktop 3D sheet metal modeller: unfold-to-flat, DXF export for laser cutting, PDF drawings.",
   "type": "module",
   "workspaces": [
-    "core"
+    "core",
+    "app"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dev": "npm run dev -w @metal-mate/app",
+    "tauri": "npm run tauri -w @metal-mate/app"
   },
   "engines": {
     "node": ">=20"

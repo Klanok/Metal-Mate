@@ -101,13 +101,17 @@ interface ClipperModule {
 
 let modulePromise: Promise<ClipperModule> | null = null;
 
-async function loadClipper(): Promise<ClipperModule> {
+async function loadClipper(wasmUrl: string | undefined): Promise<ClipperModule> {
   if (modulePromise === null) {
     modulePromise = (async () => {
       const factory = (await import('clipper2-wasm/dist/es/clipper2z.js')) as unknown as {
-        default: () => Promise<ClipperModule>;
+        default: (options?: { locateFile?: (path: string) => string }) => Promise<ClipperModule>;
       };
-      return factory.default();
+      // In Node the module finds its own .wasm next to the .js. A bundler
+      // fingerprints and moves it, so the caller passes the emitted URL.
+      // Taking a plain string keeps this module free of any bundler or DOM
+      // dependency (invariant 8).
+      return wasmUrl === undefined ? factory.default() : factory.default({ locateFile: () => wasmUrl });
     })();
   }
   return modulePromise;
@@ -115,13 +119,21 @@ async function loadClipper(): Promise<ClipperModule> {
 
 let cached: Boolean2D | null = null;
 
+export interface InitBooleansOptions {
+  /**
+   * Where to fetch `clipper2z.wasm` from. Required in a browser or webview,
+   * where the bundler decides the asset's final URL; omit under Node.
+   */
+  readonly wasmUrl?: string;
+}
+
 /**
  * Initialise the boolean kernel. Must be awaited once before any unfold or
  * export; everything downstream of it is synchronous and pure.
  */
-export async function initBooleans(): Promise<Boolean2D> {
+export async function initBooleans(options: InitBooleansOptions = {}): Promise<Boolean2D> {
   if (cached !== null) return cached;
-  const mod = await loadClipper();
+  const mod = await loadClipper(options.wasmUrl);
   cached = new Clipper2Boolean(mod);
   return cached;
 }

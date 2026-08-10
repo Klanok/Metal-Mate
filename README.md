@@ -12,7 +12,7 @@ respect.
 
 ## Status
 
-The domain core is built and tested end to end. The desktop application is not.
+The domain core and the desktop shell are both built. 138 tests pass.
 
 **Working today** (`core/`, 125 tests):
 
@@ -31,11 +31,29 @@ The domain core is built and tested end to end. The desktop application is not.
 | DXF import | reader plus healing (chains loose lines and arcs into closed loops) |
 | Project files | JSON payload, schema version, migration seam |
 
-**Not built yet:** the Tauri + React application (3D viewport, sketcher,
-template wizard, feature tree, export dialog), PDF drawing output, corner
-joints, and hems. The core exposes what those need — `fold()` returns face
-frames and bend arcs for the viewport, `validate()` returns the report the
-export dialog shows, and `build()`/`exportDxf()` are the pipeline the UI drives.
+**The app** (`app/`, Tauri 2 + React + Three.js, 13 tests):
+
+| Area | State |
+|---|---|
+| Benchtop wizard | every template parameter, live; cutouts added and edited in place |
+| 3D viewport | folded solid with a fold slider from flat to folded, orbit camera |
+| Flat preview | SVG with real arc commands, on the DXF layer colours |
+| Validation panel | full report, and it says the machine is a placeholder |
+| Feature tree and bend table | what the template generated, and where each allowance came from |
+| Export | DXF button disabled while errors stand; `exportDxf` re-checks anyway |
+| Save / open | `.smp` project files through native dialogs |
+
+The frontend is verified in a real browser: it loads, builds the default
+benchtop, renders both views, blocks export when a 3000 mm benchtop overruns
+the 2500 mm bed, and reports a bad parameter instead of white-screening. The
+Rust shell compiles (`cargo check`), which also validates `tauri.conf.json` and
+the capability files, but the **packaged desktop binary has not been run** — no
+display in the build environment. `npm run tauri dev` is the first thing to try
+on a real machine.
+
+**Not built yet:** PDF drawing output, corner joints, hems, the sketcher, and
+direct feature-tree editing. Multi-part documents and DXF import are in the
+core but not yet surfaced in the UI.
 
 **Not yet verified against reality**, and this matters before anyone cuts metal:
 
@@ -52,8 +70,22 @@ export dialog shows, and `build()`/`exportDxf()` are the pipeline the UI drives.
 
 ```bash
 npm install
-npm test          # 125 tests
+npm test          # 138 tests
 npm run typecheck
+npm run dev       # the UI in a browser, no Rust toolchain needed
+npm run tauri dev # the real desktop app
+```
+
+The app runs in a plain browser as well as under Tauri — file save and open
+fall back to a download and a file picker — which keeps the whole UI usable
+without a desktop build.
+
+Building the desktop app needs a Rust toolchain, and on Linux the webview
+development packages:
+
+```bash
+sudo apt-get install libwebkit2gtk-4.1-dev libsoup-3.0-dev \
+  libjavascriptcoregtk-4.1-dev librsvg2-dev patchelf
 ```
 
 ## The pipeline
@@ -96,7 +128,10 @@ dimensions; the template converts them to tangent-to-tangent legs.
 
 ```
 core/       domain library — pure functions, no DOM, no Tauri, no filesystem
+app/        Tauri 2 + React shell; src-tauri/ is the Rust window and dialogs
 fixtures/   approved golden DXF files
 docs/       architecture document
-app/        Tauri + React shell (not built yet)
 ```
+
+`app/` uses `core/`. `core/` never learns that `app/` exists, which is what
+keeps the whole domain testable in Node.
