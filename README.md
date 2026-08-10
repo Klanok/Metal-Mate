@@ -95,8 +95,8 @@ Settings → Pages → Source → None, or by deleting
 for Windows, `.dmg` for macOS, `.AppImage` or `.deb` for Linux. Nothing else
 needs installing; the app is self-contained.
 
-Releases are cut by pushing a tag, which builds each installer on its own
-operating system and attaches them to a draft release:
+Releases are cut by pushing a tag. One job creates the draft release, then
+each installer is built on its own operating system and uploaded into it:
 
 ```bash
 git tag v0.1.0 && git push origin v0.1.0
@@ -104,6 +104,11 @@ git tag v0.1.0 && git push origin v0.1.0
 
 The Actions tab can also run the release workflow by hand, which is the way to
 produce a build to test without minting a version number.
+
+The workflow refuses to build a tag that is already published — re-cutting a
+version somebody already has is how two people end up with different software
+under one number — and refuses to start if more than one draft exists for the
+tag, since the installers would be split across them.
 
 > The installers are **not code signed**, because a certificate costs real
 > money and there are two users. Windows SmartScreen warns on first run —
