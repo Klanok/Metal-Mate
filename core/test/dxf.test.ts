@@ -243,4 +243,16 @@ describe('golden files', () => {
       expect(actual).toBe(expected);
     });
   }
+
+  it('keeps golden files free of carriage returns', () => {
+    // The writer emits LF. If git ever rewrites a golden file to CRLF — which
+    // is what a Windows checkout does by default without the .gitattributes
+    // rule — every byte comparison above fails for a reason that has nothing
+    // to do with the geometry. Checking here says so directly.
+    for (const { name } of cases) {
+      const path = join(FIXTURES, `${name}.dxf`);
+      if (!existsSync(path)) continue;
+      expect(readFileSync(path, 'utf8')).not.toContain('\r');
+    }
+  });
 });
