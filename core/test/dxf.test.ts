@@ -23,7 +23,12 @@ import {
   tokenize,
 } from '../src/io/dxfReader.js';
 import { CUT_ONLY_EXPORT_PROFILE, DEFAULT_EXPORT_PROFILE } from '../src/io/exportProfile.js';
-import { type BenchtopParams, DEFAULT_BENCHTOP, benchtopPart } from '../src/templates/benchtop.js';
+import {
+  NO_EDGE,
+  type BenchtopParams,
+  DEFAULT_BENCHTOP,
+  benchtopPart,
+} from '../src/templates/benchtop.js';
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'fixtures');
 /** Set UPDATE_GOLDEN=1 to re-approve golden files after an intended change. */
@@ -38,8 +43,12 @@ const MVP: BenchtopParams = {
   depthMm: 600,
   thicknessMm: 1.2,
   bendRadiusMm: 1.2,
-  frontEdge: { style: 'square-drop', dropMm: 40 },
-  splashback: { style: 'integral', heightMm: 100 },
+  edges: {
+    front: { style: 'square-drop', heightMm: 40 },
+    back: { style: 'upstand', heightMm: 100 },
+    left: NO_EDGE,
+    right: NO_EDGE,
+  },
   cutouts: [
     {
       kind: 'sink',
@@ -219,7 +228,26 @@ describe('golden files', () => {
       params: {
         ...MVP,
         cutouts: [],
-        frontEdge: { style: 'boxed', dropMm: 40, returnMm: 25, upstandMm: 15 },
+        edges: {
+          ...MVP.edges,
+          front: { style: 'boxed', heightMm: 40, returnMm: 25, upstandMm: 15 },
+        },
+      },
+    },
+    {
+      // All four sides folded, so the outer profile carries the corner relief
+      // notches. Those are what stop the two bends at a corner tearing the
+      // metal, and they have to reach the laser exactly as cut.
+      name: 'benchtop-all-round',
+      params: {
+        ...MVP,
+        cutouts: [],
+        edges: {
+          front: { style: 'square-drop', heightMm: 40 },
+          back: { style: 'upstand', heightMm: 100 },
+          left: { style: 'square-drop', heightMm: 40 },
+          right: { style: 'square-drop', heightMm: 40 },
+        },
       },
     },
   ];

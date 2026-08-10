@@ -2,7 +2,8 @@
 
 Desktop 3D sheet metal modeller: design folded parts, unfold them to accurate
 flat patterns, and export DXF for the laser. First real workload is stainless
-steel benchtops — front edge folds, integral splashbacks, sink and hob cutouts.
+steel benchtops — folded edges on any side, integral splashbacks, sink and hob
+cutouts.
 
 The design is a **generic sheet metal core with domain template packs on top**.
 The core knows about faces, bends, allowances and press brakes; it does not know
@@ -12,9 +13,10 @@ respect.
 
 ## Status
 
-The domain core and the desktop shell are both built. 138 tests pass.
+The domain core and the desktop shell are both built. 157 tests pass, plus
+9 browser tests against the built bundle.
 
-**Working today** (`core/`, 125 tests):
+**Working today** (`core/`, 141 tests):
 
 | Area | State |
 |---|---|
@@ -26,12 +28,12 @@ The domain core and the desktop shell are both built. 138 tests pass.
 | Materials and bend tables | 304/316, aluminium, Zincalume, mild steel; calibration back-solve from a measured test strip |
 | Machine profile | bed, tonnage, die rack, throat, open height, thickness limits |
 | Validation | 14 rules, each with a passing and a failing fixture; errors block export |
-| Benchtop template | square drop / drop-and-return / boxed edge, integral splashback, sink, hob and tap cutouts |
+| Benchtop template | an edge on any of the four sides (square drop / drop-and-return / boxed / upstand), corner relief where two folds meet, sink, hob and tap cutouts |
 | DXF R12 export | arcs as bulges, layer mapping via export profiles, golden-file tested |
 | DXF import | reader plus healing (chains loose lines and arcs into closed loops) |
 | Project files | JSON payload, schema version, migration seam |
 
-**The app** (`app/`, Tauri 2 + React + Three.js, 13 tests):
+**The app** (`app/`, Tauri 2 + React + Three.js, 16 unit + 9 browser tests):
 
 | Area | State |
 |---|---|
@@ -91,7 +93,8 @@ produce a build to test without minting a version number.
 
 ```bash
 npm install
-npm test          # 138 tests
+npm test          # 157 tests
+npm run test:ui -w @metal-mate/app   # 9 browser tests on the built bundle
 npm run typecheck
 npm run dev       # the UI in a browser, no Rust toolchain needed
 npm run tauri dev # the real desktop app
@@ -131,8 +134,12 @@ const part = benchtopPart({
   thicknessMm: 1.2,
   materialId: 'ss304',
   bendRadiusMm: 1.2,
-  frontEdge: { style: 'square-drop', dropMm: 40 },
-  splashback: { style: 'integral', heightMm: 100 },
+  edges: {
+    front: { style: 'square-drop', heightMm: 40 },
+    back:  { style: 'upstand',     heightMm: 100 },   // the splashback
+    left:  { style: 'square-drop', heightMm: 40 },
+    right: { style: 'none',        heightMm: 0 },
+  },
   cutouts: [
     { kind: 'sink', id: 'sink1', fromLeftMm: 400, fromFrontMm: 90,
       widthMm: 400, depthMm: 350, cornerRadiusMm: 10 },

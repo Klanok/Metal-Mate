@@ -8,6 +8,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import {
   DEFAULT_BENCHTOP,
   GENERIC_2500_40T,
+  NO_EDGE,
   benchtopPart,
   build,
   circle,
@@ -25,8 +26,12 @@ const PARAMS: BenchtopParams = {
   depthMm: 600,
   thicknessMm: 1.2,
   bendRadiusMm: 1.2,
-  frontEdge: { style: 'square-drop', dropMm: 40 },
-  splashback: { style: 'integral', heightMm: 100 },
+  edges: {
+    front: { style: 'square-drop', heightMm: 40 },
+    back: { style: 'upstand', heightMm: 100 },
+    left: NO_EDGE,
+    right: NO_EDGE,
+  },
   cutouts: [
     {
       kind: 'sink',

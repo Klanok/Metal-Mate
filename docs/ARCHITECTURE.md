@@ -106,9 +106,9 @@ Editable feature tree, regenerated on every parameter change (target < 50 ms typ
 A wizard/panel that owns a parameter set and emits a feature tree:
 
 - Plan size (L × D), thickness (0.9–1.6 mm typical), material
-- **Front edge profile**: chosen from a small library — square fold-down, fold-down + return under, full boxed edge — each a predefined flange chain with editable drop/return dimensions
-- **Splashback**: none / integral (fold up at rear, height parameter) / separate part (generates a second part in the same document)
-- **Ends**: open, folded-down end caps, or ends meeting the front edge with a corner joint
+- **Edge profile, per side**: front, back, left and right each choose from a small library — none, square fold-down, fold-down + return under, full boxed edge, or fold-up — each a predefined flange chain with editable drop/return dimensions. *(Built: `edges` in `BenchtopParams`. The older `frontEdge`/`splashback` fields are still read so existing projects load, and setting a side both ways is rejected rather than silently resolved.)*
+- **Splashback**: the back side with style `upstand` — the same flange chain as any other edge, keeping the friendly `splashback` feature name. Separate-part splashbacks (a second part in the same document) are still v1.x.
+- **Corner relief**: where two folded sides meet, the top face is notched by `cornerReliefMm` so the two bend zones do not run into each other. Defaults to `max(2T, R+T)`, which also clears the bend-relief check's probe. *(Built. Corner **joints** — weld gap, tab-and-slot — remain v1.x.)*
 - **Cutouts**: sink/hob rectangles with corner radius, tap holes, positioned from edges
 - Grain direction annotation (length-wise by default)
 
