@@ -91,6 +91,14 @@ export interface PartParameters {
   /** Part number / label etched on the blank. */
   readonly partId?: string;
   readonly revision?: string;
+  /**
+   * How many of this part the document wants. Absent means one.
+   *
+   * An assembly asks for two of a side panel and one of a floor; the cut list
+   * and the mass rollup need to know, and the DXF does not — the same file is
+   * cut N times.
+   */
+  readonly quantity?: number;
 }
 
 export interface Part {

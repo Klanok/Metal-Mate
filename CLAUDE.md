@@ -115,7 +115,8 @@ core/           domain library — no UI imports (see invariant 8)
   validate/     validation rules and the report that gates export
   templates/    benchtop (v1); canopy later, over the unchanged core
   io/           DXF R12 writer, DXF reader/import, export profiles, project files
-  pipeline.ts   part -> graph -> flat -> validation -> DXF, in order
+  pipeline.ts   part -> graph -> flat -> validation -> DXF, in order; and
+                buildDocument/exportDocumentDxf for a whole multi-part document
 app/            Tauri 2 + React shell
   src/render/   core output -> SVG paths and 3D geometry (pure, tested in Node)
   src/state/    the one derivation: parameters -> build() -> every panel

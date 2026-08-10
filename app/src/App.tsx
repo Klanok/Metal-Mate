@@ -2,25 +2,23 @@ import { useCallback, useEffect, useState } from 'react';
 import type { BenchtopParams, ExportProfile } from '@metal-mate/core';
 import {
   CUT_ONLY_EXPORT_PROFILE,
-  DEFAULT_BENCHTOP,
   DEFAULT_EXPORT_PROFILE,
   benchtopPart,
   deserializeProject,
+  exportDocumentDxf,
   exportDxf,
   serializeProject,
 } from '@metal-mate/core';
 import { FeatureTree } from './components/FeatureTree.js';
+import { PartsPanel } from './components/PartsPanel.js';
 import { SettingsDialog } from './components/SettingsDialog.js';
 import { FlatPreview } from './components/FlatPreview.js';
 import { TemplatePanel } from './components/TemplatePanel.js';
 import { ValidationPanel } from './components/ValidationPanel.js';
 import { Viewport3D } from './components/Viewport3D.js';
 import { openTextFile, saveTextFile } from './platform/files.js';
-import {
-  useBenchtopBuild,
-  useBenchtopParams,
-  useBooleanKernel,
-} from './state/useBuild.js';
+import { useBooleanKernel } from './state/useBuild.js';
+import { useDocument, useDocumentBuild } from './state/useDocument.js';
 import {
   type Settings,
   adoptProjectSettings,
@@ -37,7 +35,8 @@ const EXPORT_PROFILES: readonly ExportProfile[] = [
 ];
 
 export function App(): JSX.Element {
-  const { params, replace } = useBenchtopParams(DEFAULT_BENCHTOP);
+  const doc = useDocument();
+  const params = doc.active.params;
   // The press brake and the bend tables belong to the shop, not to a part, so
   // they outlive any one project.
   const store = typeof localStorage === 'undefined' ? undefined : localStorage;
@@ -52,9 +51,19 @@ export function App(): JSX.Element {
   const [status, setStatus] = useState<string | null>(null);
 
   const kernel = useBooleanKernel();
-  const { result, error } = useBenchtopBuild(params, machine, settings.materials, foldFraction, kernel.ready);
+  const built = useDocumentBuild(
+    doc.state.rows,
+    doc.state.activeUid,
+    machine,
+    settings.materials,
+    foldFraction,
+    kernel.ready,
+  );
+  const { document, active, buildByUid, folded, error } = built;
+  const result = active !== null && active.ok ? active.result : null;
   const report = result?.report ?? null;
   const canExport = result !== null && report !== null && report.exportAllowed;
+  const canExportAll = document !== null && document.exportAllowed;
 
   const onExportDxf = useCallback(async () => {
     if (result === null) return;
@@ -74,34 +83,78 @@ export function App(): JSX.Element {
     }
   }, [result, exportProfileId, params]);
 
+  /**
+   * One DXF per part.
+   *
+   * `exportDocumentDxf` is all or nothing: if any part is blocked it writes
+   * none of them, because half an assembly reaching the laser is worse than
+   * none of it. Each file then goes through the ordinary save dialog, so this
+   * is one prompt per part rather than a folder picker.
+   */
+  const onExportAll = useCallback(async () => {
+    if (document === null) return;
+    const exportProfile = EXPORT_PROFILES.find((p) => p.id === exportProfileId) ?? DEFAULT_EXPORT_PROFILE;
+    try {
+      const files = exportDocumentDxf(document, {
+        exportProfile,
+        dateStamp: new Date().toISOString().slice(0, 10),
+      });
+      let written = 0;
+      for (const file of files) {
+        const path = await saveTextFile(file.fileName, file.dxf, [
+          { name: 'DXF', extensions: ['dxf'] },
+        ]);
+        if (path === null) break;
+        written += 1;
+      }
+      setStatus(
+        written === files.length
+          ? `Exported ${written} part${written === 1 ? '' : 's'}`
+          : `Exported ${written} of ${files.length}; the rest were cancelled`,
+      );
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : String(e));
+    }
+  }, [document, exportProfileId]);
+
   const onSaveProject = useCallback(async () => {
     if (result === null) return;
-    // The machine and any calibrated bend tables travel with the part, so it
-    // opens on the other computer checked against what it was designed for.
-    const text = serializeProject({ parts: [benchtopPart(params)], ...embedSettings(settings) });
+    // Every part in the document, plus the machine and any calibrated bend
+    // tables, so it opens on the other computer checked against what it was
+    // designed for.
+    const text = serializeProject({
+      parts: doc.state.rows.map((r) => benchtopPart(r.params)),
+      ...embedSettings(settings),
+    });
     const name = `${params.partId ?? params.name}.smp`.replace(/\s+/g, '-');
     const written = await saveTextFile(name, text, [{ name: 'Metal Mate project', extensions: ['smp'] }]);
     setStatus(written === null ? 'Save cancelled' : `Saved ${written}`);
-  }, [result, params, settings]);
+  }, [result, params, settings, doc.state.rows]);
 
   const onOpenProject = useCallback(async () => {
     const file = await openTextFile([{ name: 'Metal Mate project', extensions: ['smp', 'json'] }]);
     if (file === null) return;
     try {
-      const doc = deserializeProject(file.contents);
-      const first = doc.parts[0];
-      if (first?.template?.kind !== 'benchtop') {
-        setStatus('That project has no benchtop part; this build can only edit benchtops.');
+      const opened = deserializeProject(file.contents);
+      // Refusing beats loading what we can: saving afterwards would write the
+      // document back without the parts this build could not read.
+      const unknown = opened.parts.filter((p) => p.template?.kind !== 'benchtop');
+      if (opened.parts.length === 0 || unknown.length > 0) {
+        setStatus(
+          unknown.length > 0
+            ? `That project has ${unknown.length} part(s) this build cannot edit, so opening it would lose them. This build only knows benchtops.`
+            : 'That project has no parts in it.',
+        );
         return;
       }
-      const adopted = adoptProjectSettings(settings, doc);
+      const adopted = adoptProjectSettings(settings, opened);
       setSettings(adopted.settings);
-      replace(first.template.params as BenchtopParams);
+      doc.replaceAll(opened.parts.map((p) => p.template!.params as BenchtopParams));
       setStatus([`Opened ${file.name}`, ...adopted.notes].join(' — '));
     } catch (e) {
       setStatus(e instanceof Error ? e.message : String(e));
     }
-  }, [replace, settings]);
+  }, [doc, settings]);
 
   return (
     <div className="app">
@@ -131,6 +184,19 @@ export function App(): JSX.Element {
               </option>
             ))}
           </select>
+          <button
+            type="button"
+            data-testid="export-all"
+            disabled={!canExportAll || doc.state.rows.length < 2}
+            title={
+              canExportAll
+                ? 'Write one DXF for every part in the document'
+                : 'Every part has to pass validation before any of them export'
+            }
+            onClick={() => void onExportAll()}
+          >
+            Export all
+          </button>
           <button
             type="button"
             className="primary"
@@ -164,7 +230,21 @@ export function App(): JSX.Element {
 
       <main className="layout">
         <aside className="column left">
-          <TemplatePanel params={params} materials={settings.materials} onChange={replace} />
+          <PartsPanel
+            rows={doc.state.rows}
+            activeUid={doc.state.activeUid}
+            document={document}
+            buildByUid={buildByUid}
+            onSelect={doc.setActive}
+            onAdd={doc.add}
+            onDuplicate={doc.duplicate}
+            onRemove={doc.remove}
+          />
+          <TemplatePanel
+            params={params}
+            materials={settings.materials}
+            onChange={doc.updateActive}
+          />
         </aside>
 
         <section className="column centre">
@@ -205,7 +285,7 @@ export function App(): JSX.Element {
             {kernel.ready && view === '3d' && (
               <Viewport3D
                 graph={result?.graph ?? null}
-                folded={result?.folded ?? null}
+                folded={folded ?? null}
                 showEdges={showEdges}
               />
             )}

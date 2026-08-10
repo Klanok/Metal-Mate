@@ -74,6 +74,12 @@ export function TemplatePanel({ params, materials, onChange }: TemplatePanelProp
             onChange={(e) => patch({ partId: e.target.value })}
           />
         </label>
+        <NumberField
+          label="Quantity"
+          unit="off"
+          value={params.quantity ?? 1}
+          onChange={(v) => patch({ quantity: v })}
+        />
       </fieldset>
 
       <fieldset>

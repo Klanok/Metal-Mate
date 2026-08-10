@@ -600,3 +600,58 @@ legend {
 .field.toggle span {
   font-weight: normal;
 }
+
+/* --- parts list ------------------------------------------------------- */
+
+.part-list {
+  list-style: none;
+  margin: 0 0 0.5rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.part-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: 1px solid transparent;
+  border-radius: 4px;
+}
+
+.part-row.active {
+  border-color: var(--accent, #4a9);
+  background: rgb(255 255 255 / 4%);
+}
+
+.part-row.broken .part-name {
+  text-decoration: line-through;
+}
+
+.part-select {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  padding: 0.35rem 0.5rem;
+  background: none;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  /* A long part name must not widen the column. */
+  min-width: 0;
+}
+
+.part-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.part-actions {
+  display: flex;
+  gap: 0.4rem;
+  padding-right: 0.4rem;
+}
