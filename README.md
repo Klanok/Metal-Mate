@@ -13,10 +13,10 @@ respect.
 
 ## Status
 
-The domain core and the desktop shell are both built. 193 tests pass, plus
-16 browser tests against the built bundle.
+The domain core and the desktop shell are both built. 222 tests pass, plus
+21 browser tests against the built bundle.
 
-**Working today** (`core/`, 153 tests):
+**Working today** (`core/`, 174 tests):
 
 | Area | State |
 |---|---|
@@ -31,9 +31,10 @@ The domain core and the desktop shell are both built. 193 tests pass, plus
 | Benchtop template | an edge on any of the four sides (square drop / drop-and-return / boxed / upstand), corners that close and weld (45° mitred returns) or relieve, sink, hob and tap cutouts |
 | DXF R12 export | arcs as bulges, layer mapping via export profiles, golden-file tested |
 | DXF import | reader plus healing (chains loose lines and arcs into closed loops) |
+| Multi-part documents | several parts in one document, each keyed by name or part number, with quantities, a cut-list rollup and all-or-nothing export |
 | Project files | JSON payload, schema version, migration seam |
 
-**The app** (`app/`, Tauri 2 + React + Three.js, 40 unit + 16 browser tests):
+**The app** (`app/`, Tauri 2 + React + Three.js, 48 unit + 21 browser tests):
 
 | Area | State |
 |---|---|
@@ -43,6 +44,7 @@ The domain core and the desktop shell are both built. 193 tests pass, plus
 | Validation panel | full report, and it says the machine is a placeholder |
 | Feature tree and bend table | what the template generated, and where each allowance came from |
 | Export | DXF button disabled while errors stand; `exportDxf` re-checks anyway |
+| Parts list | add, copy and remove parts; per-part status; total mass and cut length across the document |
 | Shop settings | press brake editor, and bend calibration that back-solves K from a folded test strip |
 | Save / open | `.smp` project files through native dialogs; the machine and bend tables travel with the part |
 
@@ -54,9 +56,9 @@ the capability files, but the **packaged desktop binary has not been run** — n
 display in the build environment. `npm run tauri dev` is the first thing to try
 on a real machine.
 
-**Not built yet:** PDF drawing output, corner joints, hems, the sketcher, and
-direct feature-tree editing. Multi-part documents and DXF import are in the
-core but not yet surfaced in the UI.
+**Not built yet:** PDF drawing output, corner joints between separate parts
+(weld gap / tab-and-slot), hems, the sketcher, direct feature-tree editing, and
+nesting. DXF import is in the core but not yet surfaced in the UI.
 
 **Not yet verified against reality**, and this matters before anyone cuts metal:
 
@@ -109,8 +111,8 @@ produce a build to test without minting a version number.
 
 ```bash
 npm install
-npm test          # 193 tests
-npm run test:ui -w @metal-mate/app   # 16 browser tests on the built bundle
+npm test          # 222 tests
+npm run test:ui -w @metal-mate/app   # 21 browser tests on the built bundle
 npm run typecheck
 npm run dev       # the UI in a browser, no Rust toolchain needed
 npm run tauri dev # the real desktop app

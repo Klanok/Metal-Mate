@@ -21,6 +21,7 @@ export type FeatureId = Branded<string, 'FeatureId'>;
 export type FaceId = Branded<string, 'FaceId'>;
 export type BendId = Branded<string, 'BendId'>;
 export type CornerId = Branded<string, 'CornerId'>;
+export type PartId = Branded<string, 'PartId'>;
 
 function assertToken(token: string): void {
   if (!TOKEN.test(token)) {
@@ -72,4 +73,28 @@ export function bendId(...tokens: readonly string[]): BendId {
 
 export function cornerId(...tokens: readonly string[]): CornerId {
   return topoId(...tokens) as string as CornerId;
+}
+
+/**
+ * A document-unique handle for one part.
+ *
+ * Parts in a multi-part document are addressed by this, never by their position
+ * in the array — same rule as the geometry, and for the same reason: inserting
+ * a part above another must not silently repoint anything at it.
+ *
+ * Derived from what the user already typed rather than being a hidden field, so
+ * the id in an error message is recognisable as the part on screen.
+ */
+export function partId(name: string): PartId {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  if (slug === '') {
+    throw new Error(
+      `cannot make a part id from ${JSON.stringify(name)}: give the part a name with letters or digits in it`,
+    );
+  }
+  return slug as PartId;
 }

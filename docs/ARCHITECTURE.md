@@ -261,7 +261,7 @@ Testing is the control system for AI-generated code — written alongside or bef
 
 **v1.0:** edge profile library (return, boxed), corner joints (weld gap), DXF import, PDF drawings, bend tables + calibration workflow, full validation set, ETCH labels + grain arrow, fold animation.
 
-**v1.x:** tab-and-slot corners, hems, separate-splashback multi-part documents, batch export.
+**v1.x:** tab-and-slot corners, hems, batch export. *(Multi-part documents are built: `buildDocument` keys parts by name or part number — never by array position — carries a quantity per part for the cut-list rollup, and makes export all-or-nothing, since writing the good files and skipping the bad one is how half an assembly reaches the laser.)*
 
 **v2 — canopy template pack:** parametric ute canopy panels (sides, roof, doors, wing profiles) over the unchanged core — the real test that the template architecture holds.
 

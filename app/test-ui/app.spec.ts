@@ -149,6 +149,84 @@ for (const deviceScaleFactor of [1, 2]) {
   });
 }
 
+test.describe('documents with several parts', () => {
+  test('a part can be added, edited independently, and removed', async ({ page }) => {
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
+    const parts = page.getByTestId('parts-panel');
+    await expect(parts.locator('.part-row')).toHaveCount(1);
+    // With one part there is nothing to total up.
+    await expect(page.getByTestId('cut-list-totals')).toHaveCount(0);
+
+    await page.getByTestId('add-part').click();
+    await expect(parts.locator('.part-row')).toHaveCount(2);
+    await expect(page.getByTestId('cut-list-totals')).toBeVisible();
+
+    // The new part is selected, so editing the wizard must not touch the first.
+    await page
+      .locator('.field.number', { hasText: 'Length' })
+      .locator('input')
+      .fill('900');
+    await parts.locator('.part-row').first().locator('.part-select').click();
+    await expect(page.locator('.field.number', { hasText: 'Length' }).locator('input')).toHaveValue(
+      '1800',
+    );
+
+    await parts.locator('.part-row').last().getByRole('button', { name: 'remove' }).click();
+    await expect(parts.locator('.part-row')).toHaveCount(1);
+  });
+
+  test('two parts with the same name are reported, not silently accepted', async ({ page }) => {
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
+    await page.getByTestId('add-part').click();
+    // Rename the new part onto the first one's name.
+    await page.locator('.field', { hasText: 'Name' }).locator('input').fill('Benchtop');
+
+    await expect(page.getByTestId('document-problems')).toContainText('2 parts are called');
+    await expect(page.getByTestId('export-all')).toBeDisabled();
+  });
+
+  test('a copy does not inherit the original part number', async ({ page }) => {
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
+    await page.locator('.field', { hasText: 'Part ID' }).locator('input').fill('CAN-001');
+
+    await page.getByTestId('parts-panel').locator('.part-row').first()
+      .getByRole('button', { name: 'copy' }).click();
+    // Two parts sharing a part number is exactly the collision that would send
+    // one panel to the laser twice and the other not at all.
+    await expect(page.locator('.field', { hasText: 'Part ID' }).locator('input')).toHaveValue('');
+    await expect(page.getByTestId('document-problems')).toHaveCount(0);
+  });
+
+  test('one blocked part stops the whole document exporting', async ({ page }) => {
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
+    await page.getByTestId('add-part').click();
+    await expect(page.getByTestId('export-all')).toBeEnabled();
+
+    // 3000 mm overruns the 2500 mm bed on the second part only.
+    await page.locator('.field.number', { hasText: 'Length' }).locator('input').fill('3000');
+    await expect(page.getByTestId('export-all')).toBeDisabled();
+    // ...and the parts list says which one is at fault.
+    await expect(page.getByTestId('parts-panel')).toContainText('error');
+  });
+
+  test('the cut list counts quantities', async ({ page }) => {
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
+    await page.getByTestId('add-part').click();
+    const totals = page.getByTestId('cut-list-totals');
+    await expect(totals).toContainText('2');
+
+    await page.locator('.field.number', { hasText: 'Quantity' }).locator('input').fill('3');
+    // Two rows, one of them three off.
+    await expect(totals).toContainText('4');
+    await expect(page.getByTestId('parts-panel')).toContainText('3 off');
+  });
+});
+
 test.describe('shop settings', () => {
   test('the press brake can be edited and changes what validation says', async ({ page }) => {
     await page.goto(url, { waitUntil: 'networkidle' });

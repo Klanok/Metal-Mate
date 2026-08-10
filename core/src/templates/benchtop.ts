@@ -142,6 +142,8 @@ export interface BenchtopParams {
   readonly name: string;
   readonly partId?: string;
   readonly revision?: string;
+  /** How many of this part the document wants. Omit for one. */
+  readonly quantity?: number;
   /** Overall length, outside to outside. */
   readonly lengthMm: number;
   /** Overall depth, front outside face to the back. */
@@ -338,6 +340,7 @@ export function benchtopPart(params: BenchtopParams): Part {
       grain: params.grain ?? 'length',
       ...(params.partId !== undefined ? { partId: params.partId } : {}),
       ...(params.revision !== undefined ? { revision: params.revision } : {}),
+      ...(params.quantity !== undefined ? { quantity: params.quantity } : {}),
     },
     features,
     template: { kind: BENCHTOP_TEMPLATE_KIND, params },
