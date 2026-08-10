@@ -1,0 +1,21 @@
+# Line endings.
+#
+# The DXF writer emits LF and the golden files in fixtures/ are byte-compared,
+# so git must never rewrite their line endings. Without this, a Windows
+# checkout (core.autocrlf=true by default) turns every golden file into CRLF
+# and the whole golden-file suite fails there — and re-approving with
+# UPDATE_GOLDEN=1 on Windows would commit CRLF files that then break everyone
+# else.
+
+# Normalise text files to LF in the repository and in the working tree, so the
+# repo behaves the same on every machine.
+* text=auto eol=lf
+
+# Golden files are compared byte for byte: git must leave them exactly alone.
+*.dxf -text
+
+# Genuinely binary assets.
+*.png binary
+*.ico binary
+*.icns binary
+*.wasm binary
