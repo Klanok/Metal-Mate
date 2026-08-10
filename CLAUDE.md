@@ -116,6 +116,11 @@ core/           domain library — no UI imports (see invariant 8)
   templates/    benchtop (v1); canopy later, over the unchanged core
   io/           DXF R12 writer, DXF reader/import, export profiles, project files
   pipeline.ts   part -> graph -> flat -> validation -> DXF, in order
+app/            Tauri 2 + React shell
+  src/render/   core output -> SVG paths and 3D geometry (pure, tested in Node)
+  src/state/    the one derivation: parameters -> build() -> every panel
+  src/platform/ file save/open, native under Tauri and browser fallback
+  src-tauri/    Rust: window, menus, dialogs. No domain logic lives here.
 fixtures/       golden DXF files
 docs/           the architecture document
 ```
@@ -123,7 +128,28 @@ docs/           the architecture document
 The layering is one-way: `io` and `templates` may use `model` and `geometry`;
 nothing may reach back up. `templates/` must stay ignorant of `core/`'s
 internals beyond the public feature types — the canopy pack in v2 is the test
-of whether that held.
+of whether that held. `app/` may use `core/`; `core/` must never learn that
+`app/` exists.
+
+---
+
+## The app
+
+The UI holds parameters, never geometry — same rule as invariant 7. Everything
+on screen comes from one `build()` call, so there is no path by which the
+viewport, the flat preview and the DXF can disagree.
+
+Keep logic out of components. Anything worth testing goes in `src/render/` or
+`src/state/` where it can be tested in Node; components should be thin enough
+that reading them tells you what they draw.
+
+The boolean kernel is WebAssembly, so the app must pass the bundler's URL for
+it: `initBooleans({ wasmUrl })`. Core takes a plain string and stays free of
+any bundler or DOM dependency.
+
+`src-tauri/` stays thin on purpose. Domain logic in Rust would be code the
+Node test suite cannot reach, so the rule is: if it can run in TypeScript, it
+does.
 
 ---
 

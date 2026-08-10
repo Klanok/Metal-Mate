@@ -1,0 +1,29 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "types": [
+      "vite/client",
+      "node"
+    ],
+    "paths": {
+      "@metal-mate/core": [
+        "../core/src/index.ts"
+      ]
+    }
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "test/**/*.ts",
+    "vite.config.ts",
+    "vitest.config.ts",
+    "../core/src/clipper2-wasm.d.ts"
+  ]
+}
