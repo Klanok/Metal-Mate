@@ -26,7 +26,8 @@
  *    fold is 90, not 180.
  */
 
-import { type BendId, type FaceId } from '../ids.js';
+import { type BendId, type CornerId, type FaceId } from '../ids.js';
+import { type CornerJoint, checkCorners } from './corner.js';
 import { type Profile } from '../geometry/profile.js';
 import { type Loop, segments } from '../geometry/loop.js';
 import { type Vec2, cross, distance, dot, normalize, sub } from '../geometry/vec2.js';
@@ -93,6 +94,15 @@ export interface Bend {
 export interface FaceBendGraph {
   readonly faces: ReadonlyMap<FaceId, Face>;
   readonly bends: ReadonlyMap<BendId, Bend>;
+  /**
+   * Corner joints, which sit *alongside* the tree rather than in it.
+   *
+   * Two flanges meeting at a corner are already related through the tree, so
+   * recording that as a bend would close a cycle. Joints do their work by
+   * modifying the two faces' 2D profiles at unfold time instead, which is what
+   * keeps the tree property (see CLAUDE.md invariant 1).
+   */
+  readonly corners: ReadonlyMap<CornerId, CornerJoint>;
   /** The face that stays put when unfolding and folding. */
   readonly baseFaceId: FaceId;
   /** Sheet thickness in mm. Single-thickness parts only (v1). */
@@ -115,6 +125,7 @@ export function buildGraph(
   bends: readonly Bend[],
   baseFaceId: FaceId,
   thickness: number,
+  corners: readonly CornerJoint[] = [],
 ): FaceBendGraph {
   const faceMap = new Map<FaceId, Face>();
   for (const f of faces) {
@@ -126,7 +137,12 @@ export function buildGraph(
     if (bendMap.has(b.id)) throw new Error(`duplicate bend id ${b.id}`);
     bendMap.set(b.id, b);
   }
-  return { faces: faceMap, bends: bendMap, baseFaceId, thickness };
+  const cornerMap = new Map<CornerId, CornerJoint>();
+  for (const c of corners) {
+    if (cornerMap.has(c.id)) throw new Error(`duplicate corner id ${c.id}`);
+    cornerMap.set(c.id, c);
+  }
+  return { faces: faceMap, bends: bendMap, corners: cornerMap, baseFaceId, thickness };
 }
 
 export function getFace(g: FaceBendGraph, id: FaceId): Face {
@@ -165,10 +181,12 @@ export interface GraphProblem {
     | 'bend-line-length-mismatch'
     | 'bend-line-not-on-face'
     | 'bad-thickness'
-    | 'no-base-face';
+    | 'no-base-face'
+    | 'bad-corner-joint';
   readonly message: string;
   readonly bendId?: BendId;
   readonly faceId?: FaceId;
+  readonly cornerId?: CornerId;
 }
 
 /**
@@ -177,6 +195,9 @@ export interface GraphProblem {
  * validation warnings.
  */
 export function checkGraph(g: FaceBendGraph): GraphProblem[] {
+  // Corner joints are checked here rather than separately so that one call
+  // still answers "is this graph safe to unfold" — `assertGraphOk` gates the
+  // unfold on exactly this result.
   const problems: GraphProblem[] = [];
 
   if (!(g.thickness > 0)) {
@@ -281,6 +302,9 @@ export function checkGraph(g: FaceBendGraph): GraphProblem[] {
       message: `faces not reachable from the base face: ${orphans.join(', ')}`,
       ...(orphans[0] !== undefined ? { faceId: orphans[0] } : {}),
     });
+  }
+  for (const c of checkCorners(g)) {
+    problems.push({ code: 'bad-corner-joint', message: c.message, cornerId: c.cornerId });
   }
   return problems;
 }

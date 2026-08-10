@@ -13,15 +13,15 @@ respect.
 
 ## Status
 
-The domain core and the desktop shell are both built. 222 tests pass, plus
+The domain core and the desktop shell are both built. 243 tests pass, plus
 21 browser tests against the built bundle.
 
-**Working today** (`core/`, 174 tests):
+**Working today** (`core/`, 195 tests):
 
 | Area | State |
 |---|---|
 | Face-bend graph + structural checks | tree invariant, bend-line direction convention, orientation |
-| Feature model and regeneration | base flange, edge flange (with insets and multi-fold chains), cutouts |
+| Feature model and regeneration | base flange, edge flange (insets, mitres, multi-fold chains), cutouts, corner joints |
 | Topological naming | features address geometry as `top.front`, `frontDrop.tip` |
 | Unfold engine | bend allowance placement, cutouts, overlap and island detection |
 | Folded 3D view | face frames and bend arcs, fold fraction 0..1 for the animation |
@@ -31,6 +31,7 @@ The domain core and the desktop shell are both built. 222 tests pass, plus
 | Benchtop template | an edge on any of the four sides (square drop / drop-and-return / boxed / upstand), corners that close and weld (45° mitred returns) or relieve, sink, hob and tap cutouts |
 | DXF R12 export | arcs as bulges, layer mapping via export profiles, golden-file tested |
 | DXF import | reader plus healing (chains loose lines and arcs into closed loops) |
+| Corner joints | weld gap and tab-and-slot, recorded alongside the tree and applied to the 2D profiles at unfold time |
 | Multi-part documents | several parts in one document, each keyed by name or part number, with quantities, a cut-list rollup and all-or-nothing export |
 | Project files | JSON payload, schema version, migration seam |
 
@@ -56,9 +57,11 @@ the capability files, but the **packaged desktop binary has not been run** — n
 display in the build environment. `npm run tauri dev` is the first thing to try
 on a real machine.
 
-**Not built yet:** PDF drawing output, corner joints between separate parts
-(weld gap / tab-and-slot), hems, the sketcher, direct feature-tree editing, and
-nesting. DXF import is in the core but not yet surfaced in the UI.
+**Not built yet:** PDF drawing output, hems, the sketcher, direct feature-tree
+editing, and nesting. Corner joints are in the core but not yet surfaced in the
+UI, and they join two flanges of one part — joints *between* parts need an
+assembly transform that does not exist yet. DXF import is in the core but not
+yet surfaced either.
 
 **Not yet verified against reality**, and this matters before anyone cuts metal:
 
@@ -111,7 +114,7 @@ produce a build to test without minting a version number.
 
 ```bash
 npm install
-npm test          # 222 tests
+npm test          # 243 tests
 npm run test:ui -w @metal-mate/app   # 21 browser tests on the built bundle
 npm run typecheck
 npm run dev       # the UI in a browser, no Rust toolchain needed

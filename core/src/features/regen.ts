@@ -10,7 +10,13 @@ import { type Loop, polygon } from '../geometry/loop.js';
 import { type Profile, profile } from '../geometry/profile.js';
 import { type Vec2, add, normalize, scale, sub } from '../geometry/vec2.js';
 import { toRadians } from '../units.js';
-import { bendId as makeBendId, faceId as makeFaceId, type FaceId } from '../ids.js';
+import {
+  bendId as makeBendId,
+  cornerId as makeCornerId,
+  faceId as makeFaceId,
+  type FaceId,
+} from '../ids.js';
+import { type CornerJoint } from '../model/corner.js';
 import {
   type Bend,
   type DirectedEdge,
@@ -31,6 +37,7 @@ export interface RegenResult {
 export function regenerate(part: Part): RegenResult {
   const faces = new Map<FaceId, Face>();
   const bends: Bend[] = [];
+  const corners: CornerJoint[] = [];
   const facesByFeature = new Map<string, FaceId[]>();
   let baseFaceId: FaceId | null = null;
 
@@ -70,6 +77,19 @@ export function regenerate(part: Part): RegenResult {
         bends.push(bend);
         break;
       }
+      case 'corner-joint': {
+        // Deliberately not resolved against the faces here: `checkCorners`
+        // does that, and reporting a bad reference as a graph problem beats
+        // throwing out of regeneration, which would lose the whole part.
+        corners.push({
+          id: makeCornerId(feature.id),
+          a: { faceId: feature.a.faceId, edgeName: feature.a.edgeName },
+          b: { faceId: feature.b.faceId, edgeName: feature.b.edgeName },
+          treatment: feature.treatment,
+          ...(feature.label !== undefined ? { label: feature.label } : {}),
+        });
+        break;
+      }
       case 'cutout': {
         const target = faces.get(feature.faceId);
         if (target === undefined) {
@@ -88,7 +108,13 @@ export function regenerate(part: Part): RegenResult {
 
   if (baseFaceId === null) throw new Error('a part must start with a base flange feature');
   return {
-    graph: buildGraph([...faces.values()], bends, baseFaceId, part.parameters.thicknessMm),
+    graph: buildGraph(
+      [...faces.values()],
+      bends,
+      baseFaceId,
+      part.parameters.thicknessMm,
+      corners,
+    ),
     facesByFeature,
   };
 }

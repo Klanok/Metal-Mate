@@ -13,6 +13,7 @@
 import { type Loop } from '../geometry/loop.js';
 import { type Profile } from '../geometry/profile.js';
 import { type DirectedEdge, type BendDirection } from '../model/graph.js';
+import { type CornerTreatment } from '../model/corner.js';
 import { type FaceId, type FeatureId } from '../ids.js';
 
 /** Points at one named edge of one face. */
@@ -74,7 +75,26 @@ export interface CutoutFeature {
   readonly label?: string;
 }
 
-export type Feature = BaseFlangeFeature | EdgeFlangeFeature | CutoutFeature;
+/**
+ * Two flanges that meet in the folded part, and what to do where they meet.
+ *
+ * Not a graph edge: see `model/corner.ts` and CLAUDE.md invariant 1. The
+ * treatment modifies the two faces' 2D profiles at unfold time.
+ */
+export interface CornerJointFeature {
+  readonly kind: 'corner-joint';
+  readonly id: FeatureId;
+  readonly a: EdgeRef;
+  readonly b: EdgeRef;
+  readonly treatment: CornerTreatment;
+  readonly label?: string;
+}
+
+export type Feature =
+  | BaseFlangeFeature
+  | EdgeFlangeFeature
+  | CutoutFeature
+  | CornerJointFeature;
 
 export type GrainDirection = 'length' | 'width' | 'none';
 

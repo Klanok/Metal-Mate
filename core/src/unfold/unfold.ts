@@ -29,6 +29,7 @@ import {
 import { IDENTITY, type Xform2, apply, compose, fromSegmentToSegment, translation } from '../geometry/transform.js';
 import { type Box2, type Vec2, add, lerp, normalize, rightNormal, scale, sub } from '../geometry/vec2.js';
 import { type BendId, type FaceId } from '../ids.js';
+import { applyCorners } from '../model/corner.js';
 import { type AllowanceResult, resolveAllowance } from '../materials/allowance.js';
 import { type Material } from '../materials/material.js';
 import {
@@ -112,8 +113,12 @@ export interface UnfoldOptions {
   readonly keepOrigin?: boolean;
 }
 
-export function unfold(graph: FaceBendGraph, options: UnfoldOptions): FlatPattern {
-  assertGraphOk(graph);
+export function unfold(inputGraph: FaceBendGraph, options: UnfoldOptions): FlatPattern {
+  assertGraphOk(inputGraph);
+  // Corner joints do their work here, by modifying the two faces' profiles
+  // before anything is placed. They are never graph edges, so the tree the
+  // placement walks is the same tree either way.
+  const graph = applyCorners(inputGraph);
   const ops = booleans();
   const thickness = graph.thickness;
   const baseFaceId = options.baseFaceId ?? graph.baseFaceId;
