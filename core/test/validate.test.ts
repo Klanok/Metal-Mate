@@ -19,7 +19,12 @@ import { unfold } from '../src/unfold/unfold.js';
 import { validate } from '../src/validate/validate.js';
 import { type FindingCode } from '../src/validate/report.js';
 import { ExportBlockedError, build, exportDxf } from '../src/pipeline.js';
-import { type BenchtopParams, DEFAULT_BENCHTOP, benchtopPart } from '../src/templates/benchtop.js';
+import {
+  NO_EDGE,
+  type BenchtopParams,
+  DEFAULT_BENCHTOP,
+  benchtopPart,
+} from '../src/templates/benchtop.js';
 
 beforeAll(async () => {
   await initBooleans();
@@ -31,8 +36,12 @@ const BASE_BENCHTOP: BenchtopParams = {
   depthMm: 600,
   thicknessMm: 1.2,
   bendRadiusMm: 1.2,
-  frontEdge: { style: 'square-drop', dropMm: 40 },
-  splashback: { style: 'integral', heightMm: 100 },
+  edges: {
+    front: { style: 'square-drop', heightMm: 40 },
+    back: { style: 'upstand', heightMm: 100 },
+    left: NO_EDGE,
+    right: NO_EDGE,
+  },
   cutouts: [],
 };
 

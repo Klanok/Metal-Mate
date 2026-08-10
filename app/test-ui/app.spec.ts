@@ -47,6 +47,33 @@ test.describe('under the desktop content security policy', () => {
     expect(failures.join('\n')).not.toMatch(/Content Security Policy|unsafe-eval/i);
   });
 
+  test('an edge can be folded on any of the four sides', async ({ page }) => {
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
+    // Front and back are folded by default; they are opposite sides, so no
+    // corner has two bends meeting in it yet.
+    await expect(page.getByTestId('bend-table').locator('tbody tr')).toHaveCount(2);
+    await expect(page.getByTestId('corner-relief')).toHaveCount(0);
+
+    for (const side of ['left', 'right']) {
+      await page.getByTestId(`edge-${side}`).locator('select').selectOption('square-drop');
+    }
+
+    await expect(page.getByTestId('bend-table').locator('tbody tr')).toHaveCount(4);
+    // Four corners now need relieving, so the control for it appears.
+    await expect(page.getByTestId('corner-relief')).toBeVisible();
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export');
+    await expect(page.getByTestId('export-dxf')).toBeEnabled();
+  });
+
+  test('a left end can fold up as well as down', async ({ page }) => {
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
+    await page.getByTestId('edge-left').locator('select').selectOption('upstand');
+    const directions = page.getByTestId('bend-table').locator('tbody tr td:nth-child(3)');
+    await expect(directions).toHaveText(['down', 'up', 'up']);
+  });
+
   test('export is blocked when the part exceeds the machine', async ({ page }) => {
     await page.goto(url, { waitUntil: 'networkidle' });
     await expect(page.getByTestId('verdict')).toContainText('Ready to export');

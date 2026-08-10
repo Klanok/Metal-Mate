@@ -16,7 +16,12 @@ import { bendAllowance } from '../src/materials/allowance.js';
 import { regenerate } from '../src/features/regen.js';
 import { angleBetween, fold, frameFor, toWorld } from '../src/unfold/fold.js';
 import { unfold } from '../src/unfold/unfold.js';
-import { type BenchtopParams, DEFAULT_BENCHTOP, benchtopPart } from '../src/templates/benchtop.js';
+import {
+  NO_EDGE,
+  type BenchtopParams,
+  DEFAULT_BENCHTOP,
+  benchtopPart,
+} from '../src/templates/benchtop.js';
 
 const PARAMS: BenchtopParams = {
   ...DEFAULT_BENCHTOP,
@@ -24,8 +29,12 @@ const PARAMS: BenchtopParams = {
   depthMm: 600,
   thicknessMm: 1.2,
   bendRadiusMm: 1.2,
-  frontEdge: { style: 'square-drop', dropMm: 40 },
-  splashback: { style: 'integral', heightMm: 100 },
+  edges: {
+    front: { style: 'square-drop', heightMm: 40 },
+    back: { style: 'upstand', heightMm: 100 },
+    left: NO_EDGE,
+    right: NO_EDGE,
+  },
   cutouts: [],
 };
 
@@ -83,8 +92,11 @@ describe('bend direction', () => {
   it('curls a boxed front edge back under the top, not away from it', () => {
     const boxed: BenchtopParams = {
       ...PARAMS,
-      splashback: { style: 'none', heightMm: 0 },
-      frontEdge: { style: 'boxed', dropMm: 40, returnMm: 25, upstandMm: 15 },
+      edges: {
+        ...PARAMS.edges,
+        back: NO_EDGE,
+        front: { style: 'boxed', heightMm: 40, returnMm: 25, upstandMm: 15 },
+      },
     };
     const { graph, folded } = foldBenchtop(boxed);
     const topFrame = frameFor(folded, faceId('top'));

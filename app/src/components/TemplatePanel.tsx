@@ -7,7 +7,16 @@
  * about bend allowance.
  */
 
-import type { BenchtopCutout, BenchtopParams, FrontEdgeStyle, Material } from '@metal-mate/core';
+import type {
+  BenchtopCutout,
+  BenchtopEdges,
+  BenchtopParams,
+  EdgeParams,
+  EdgeStyle,
+  Material,
+  Side,
+} from '@metal-mate/core';
+import { NO_EDGE, SIDES, resolveEdges } from '@metal-mate/core';
 import { NumberField } from './NumberField.js';
 
 export interface TemplatePanelProps {
@@ -16,17 +25,33 @@ export interface TemplatePanelProps {
   readonly onChange: (next: BenchtopParams) => void;
 }
 
-const FRONT_EDGE_STYLES: { value: FrontEdgeStyle; label: string }[] = [
-  { value: 'none', label: 'None (flat edge)' },
+const EDGE_STYLES: { value: EdgeStyle; label: string }[] = [
+  { value: 'none', label: 'Open (no edge)' },
   { value: 'square-drop', label: 'Square fold-down' },
   { value: 'drop-and-return', label: 'Fold-down + return under' },
   { value: 'boxed', label: 'Full boxed edge' },
+  { value: 'upstand', label: 'Fold up (splashback)' },
 ];
+
+const SIDE_LABELS: Record<Side, string> = {
+  front: 'Front edge',
+  back: 'Back edge',
+  left: 'Left end',
+  right: 'Right end',
+};
 
 export function TemplatePanel({ params, materials, onChange }: TemplatePanelProps): JSX.Element {
   const patch = (next: Partial<BenchtopParams>): void => onChange({ ...params, ...next });
   const material = materials.find((m) => m.id === params.materialId);
-  const style = params.frontEdge.style;
+  const edges = resolveEdges(params);
+
+  const setEdge = (side: Side, edge: EdgeParams): void => {
+    const next: BenchtopEdges = { ...edges, [side]: edge };
+    // Always write the current spelling, and drop the legacy fields so the two
+    // can never disagree about the same side.
+    const { frontEdge: _f, splashback: _s, ...rest } = params;
+    onChange({ ...rest, edges: next });
+  };
 
   return (
     <section className="panel template" data-testid="template-panel">
@@ -37,11 +62,7 @@ export function TemplatePanel({ params, materials, onChange }: TemplatePanelProp
         <legend>Part</legend>
         <label className="field">
           <span>Name</span>
-          <input
-            type="text"
-            value={params.name}
-            onChange={(e) => patch({ name: e.target.value })}
-          />
+          <input type="text" value={params.name} onChange={(e) => patch({ name: e.target.value })} />
         </label>
         <label className="field">
           <span>Part ID</span>
@@ -64,10 +85,7 @@ export function TemplatePanel({ params, materials, onChange }: TemplatePanelProp
         <legend>Material</legend>
         <label className="field">
           <span>Grade</span>
-          <select
-            value={params.materialId}
-            onChange={(e) => patch({ materialId: e.target.value })}
-          >
+          <select value={params.materialId} onChange={(e) => patch({ materialId: e.target.value })}>
             {materials.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.name}
@@ -107,94 +125,113 @@ export function TemplatePanel({ params, materials, onChange }: TemplatePanelProp
         </label>
       </fieldset>
 
-      <fieldset>
-        <legend>Front edge</legend>
-        <label className="field">
-          <span>Profile</span>
-          <select
-            value={style}
-            onChange={(e) =>
-              patch({
-                frontEdge: withStyleDefaults(params, e.target.value as FrontEdgeStyle),
-              })
-            }
-          >
-            {FRONT_EDGE_STYLES.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        {style !== 'none' && (
-          <NumberField
-            label="Drop"
-            value={params.frontEdge.dropMm}
-            onChange={(v) => patch({ frontEdge: { ...params.frontEdge, dropMm: v } })}
-          />
-        )}
-        {(style === 'drop-and-return' || style === 'boxed') && (
-          <NumberField
-            label="Return under"
-            value={params.frontEdge.returnMm ?? 25}
-            onChange={(v) => patch({ frontEdge: { ...params.frontEdge, returnMm: v } })}
-          />
-        )}
-        {style === 'boxed' && (
-          <NumberField
-            label="Upstand"
-            value={params.frontEdge.upstandMm ?? 15}
-            onChange={(v) => patch({ frontEdge: { ...params.frontEdge, upstandMm: v } })}
-          />
-        )}
-      </fieldset>
+      {SIDES.map((side) => (
+        <EdgeEditor
+          key={side}
+          side={side}
+          edge={edges[side]}
+          onChange={(edge) => setEdge(side, edge)}
+        />
+      ))}
 
-      <fieldset>
-        <legend>Splashback</legend>
-        <label className="field">
-          <span>Style</span>
-          <select
-            value={params.splashback.style}
-            onChange={(e) =>
-              patch({
-                splashback: {
-                  style: e.target.value as 'none' | 'integral',
-                  heightMm: params.splashback.heightMm > 0 ? params.splashback.heightMm : 100,
-                },
-              })
-            }
-          >
-            <option value="none">None</option>
-            <option value="integral">Integral (folded up)</option>
-          </select>
-        </label>
-        {params.splashback.style === 'integral' && (
+      {countFlangedCorners(edges) > 0 && (
+        <fieldset data-testid="corner-relief">
+          <legend>Corners</legend>
+          <p className="muted">
+            Where two folded sides meet, the top is notched so the two bends do not run into each
+            other and tear the corner.
+          </p>
           <NumberField
-            label="Height"
-            value={params.splashback.heightMm}
-            onChange={(v) => patch({ splashback: { ...params.splashback, heightMm: v } })}
+            label="Relief notch"
+            value={params.cornerReliefMm ?? defaultRelief(params)}
+            step={0.5}
+            onChange={(v) => patch({ cornerReliefMm: v })}
           />
-        )}
-      </fieldset>
+        </fieldset>
+      )}
 
-      <CutoutEditor
-        cutouts={params.cutouts}
-        onChange={(cutouts) => patch({ cutouts })}
-      />
+      <CutoutEditor cutouts={params.cutouts} onChange={(cutouts) => patch({ cutouts })} />
     </section>
   );
 }
 
-/** Fill in the dimensions a newly chosen edge style needs but does not have. */
-function withStyleDefaults(params: BenchtopParams, style: FrontEdgeStyle): BenchtopParams['frontEdge'] {
-  const current = params.frontEdge;
+function defaultRelief(params: BenchtopParams): number {
+  return Math.max(2 * params.thicknessMm, params.bendRadiusMm + params.thicknessMm);
+}
+
+function countFlangedCorners(edges: BenchtopEdges): number {
+  const flanged = (s: Side): boolean => edges[s].style !== 'none' && edges[s].heightMm > 0;
+  const pairs: [Side, Side][] = [
+    ['front', 'left'],
+    ['front', 'right'],
+    ['right', 'back'],
+    ['back', 'left'],
+  ];
+  return pairs.filter(([a, b]) => flanged(a) && flanged(b)).length;
+}
+
+function EdgeEditor({
+  side,
+  edge,
+  onChange,
+}: {
+  side: Side;
+  edge: EdgeParams;
+  onChange: (edge: EdgeParams) => void;
+}): JSX.Element {
+  const style = edge.style;
+  const heightLabel = style === 'upstand' ? 'Height' : 'Drop';
+
+  return (
+    <fieldset data-testid={`edge-${side}`}>
+      <legend>{SIDE_LABELS[side]}</legend>
+      <label className="field">
+        <span>Profile</span>
+        <select
+          value={style}
+          onChange={(e) => onChange(withStyleDefaults(edge, e.target.value as EdgeStyle))}
+        >
+          {EDGE_STYLES.map((s) => (
+            <option key={s.value} value={s.value}>
+              {s.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      {style !== 'none' && (
+        <NumberField
+          label={heightLabel}
+          value={edge.heightMm}
+          onChange={(v) => onChange({ ...edge, heightMm: v })}
+        />
+      )}
+      {(style === 'drop-and-return' || style === 'boxed') && (
+        <NumberField
+          label="Return under"
+          value={edge.returnMm ?? 25}
+          onChange={(v) => onChange({ ...edge, returnMm: v })}
+        />
+      )}
+      {style === 'boxed' && (
+        <NumberField
+          label="Upstand"
+          value={edge.upstandMm ?? 15}
+          onChange={(v) => onChange({ ...edge, upstandMm: v })}
+        />
+      )}
+    </fieldset>
+  );
+}
+
+/** Fill in the dimensions a newly chosen style needs but does not have yet. */
+function withStyleDefaults(edge: EdgeParams, style: EdgeStyle): EdgeParams {
+  if (style === 'none') return NO_EDGE;
+  const heightMm = edge.heightMm > 0 ? edge.heightMm : style === 'upstand' ? 100 : 40;
   return {
     style,
-    dropMm: current.dropMm > 0 ? current.dropMm : 40,
-    ...(style === 'drop-and-return' || style === 'boxed'
-      ? { returnMm: current.returnMm ?? 25 }
-      : {}),
-    ...(style === 'boxed' ? { upstandMm: current.upstandMm ?? 15 } : {}),
+    heightMm,
+    ...(style === 'drop-and-return' || style === 'boxed' ? { returnMm: edge.returnMm ?? 25 } : {}),
+    ...(style === 'boxed' ? { upstandMm: edge.upstandMm ?? 15 } : {}),
   };
 }
 
@@ -217,7 +254,9 @@ function CutoutEditor({
   return (
     <fieldset data-testid="cutout-editor">
       <legend>Cutouts</legend>
-      {cutouts.length === 0 && <p className="muted">None. Positions are measured from the front-left corner.</p>}
+      {cutouts.length === 0 && (
+        <p className="muted">None. Positions are measured from the front-left corner.</p>
+      )}
       {cutouts.map((cutout, index) => (
         <div className="cutout" key={cutout.id}>
           <div className="cutout-head">
