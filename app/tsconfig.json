@@ -22,8 +22,10 @@
     "src/**/*.ts",
     "src/**/*.tsx",
     "test/**/*.ts",
+    "test-ui/**/*.ts",
     "vite.config.ts",
     "vitest.config.ts",
+    "playwright.config.ts",
     "../core/src/clipper2-wasm.d.ts"
   ]
 }

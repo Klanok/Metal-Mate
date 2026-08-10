@@ -74,10 +74,23 @@ export function Viewport3D({ graph, folded, showEdges }: Viewport3DProps): JSX.E
     };
     animate();
 
+    // Track the last size so a resize that changes nothing cannot feed itself.
+    let lastWidth = 0;
+    let lastHeight = 0;
     const resize = (): void => {
       const { clientWidth, clientHeight } = mount;
       if (clientWidth === 0 || clientHeight === 0) return;
-      renderer.setSize(clientWidth, clientHeight, false);
+      if (clientWidth === lastWidth && clientHeight === lastHeight) return;
+      lastWidth = clientWidth;
+      lastHeight = clientHeight;
+      // Let Three set the canvas CSS size as well as its drawing buffer. With
+      // updateStyle off, the canvas has no CSS size and so displays at buffer
+      // size — which is devicePixelRatio times larger than its box. That grows
+      // the container, ResizeObserver fires, and the canvas doubles again on
+      // every tick. On a 200% display it reaches millions of pixels wide in a
+      // second and the viewport goes black. Invisible at 100% scaling, which
+      // is why it survived a browser smoke test.
+      renderer.setSize(clientWidth, clientHeight);
       camera.aspect = clientWidth / clientHeight;
       camera.updateProjectionMatrix();
     };

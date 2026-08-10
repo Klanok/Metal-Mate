@@ -21,6 +21,21 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      # Drives the built bundle in a real browser, served under the desktop
+      # CSP and at more than one device pixel ratio. Both bugs this guards
+      # against shipped once because no other test in the repo can see them.
+      - run: npm run test:ui -w @metal-mate/app
+
   tauri-shell:
     runs-on: ubuntu-latest
     steps:
