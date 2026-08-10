@@ -13,10 +13,10 @@ respect.
 
 ## Status
 
-The domain core and the desktop shell are both built. 243 tests pass, plus
+The domain core and the desktop shell are both built. 257 tests pass, plus
 21 browser tests against the built bundle.
 
-**Working today** (`core/`, 195 tests):
+**Working today** (`core/`, 209 tests):
 
 | Area | State |
 |---|---|
@@ -31,6 +31,7 @@ The domain core and the desktop shell are both built. 243 tests pass, plus
 | Benchtop template | an edge on any of the four sides (square drop / drop-and-return / boxed / upstand), corners that close and weld (45° mitred returns) or relieve, sink, hob and tap cutouts |
 | DXF R12 export | arcs as bulges, layer mapping via export profiles, golden-file tested |
 | DXF import | reader plus healing (chains loose lines and arcs into closed loops) |
+| Part placement | edge mates position parts relative to each other, as a tree over parts, so cross-part joints have somewhere to meet |
 | Corner joints | weld gap and tab-and-slot, recorded alongside the tree and applied to the 2D profiles at unfold time |
 | Multi-part documents | several parts in one document, each keyed by name or part number, with quantities, a cut-list rollup and all-or-nothing export |
 | Project files | JSON payload, schema version, migration seam |
@@ -58,10 +59,10 @@ display in the build environment. `npm run tauri dev` is the first thing to try
 on a real machine.
 
 **Not built yet:** PDF drawing output, hems, the sketcher, direct feature-tree
-editing, and nesting. Corner joints are in the core but not yet surfaced in the
-UI, and they join two flanges of one part — joints *between* parts need an
-assembly transform that does not exist yet. DXF import is in the core but not
-yet surfaced either.
+editing, and nesting. Corner joints and part placement are in the core but not
+yet surfaced in the UI, and joints still apply within one part — carrying them
+across a mate is the next step. DXF import is in the core but not surfaced
+either.
 
 **Not yet verified against reality**, and this matters before anyone cuts metal:
 
@@ -119,7 +120,7 @@ tag, since the installers would be split across them.
 
 ```bash
 npm install
-npm test          # 243 tests
+npm test          # 257 tests
 npm run test:ui -w @metal-mate/app   # 21 browser tests on the built bundle
 npm run typecheck
 npm run dev       # the UI in a browser, no Rust toolchain needed

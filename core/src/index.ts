@@ -19,6 +19,8 @@ export * from './geometry/transform.js';
 export * from './geometry/boolean.js';
 
 export * from './model/graph.js';
+export * from './model/corner.js';
+export * from './model/assembly.js';
 
 export * from './features/types.js';
 export * from './features/regen.js';

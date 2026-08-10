@@ -38,6 +38,10 @@ export function length3(a: Vec3): number {
   return Math.hypot(a.x, a.y, a.z);
 }
 
+export function distance3(a: Vec3, b: Vec3): number {
+  return length3(sub3(a, b));
+}
+
 export function normalize3(a: Vec3): Vec3 {
   const l = length3(a);
   if (l === 0) throw new Error('cannot normalize a zero-length vector');

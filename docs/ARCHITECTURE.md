@@ -30,6 +30,8 @@ The first real workload is stainless benchtops: front edge folds, integral splas
 **Non-goals (v1)**
 
 - General 3D CAD, assemblies, freeform surfaces
+
+  *(Amended: `core/src/model/assembly.ts` places parts relative to each other, and is deliberately the narrow thing rather than the non-goal. One question — given two edges on two different parts that are supposed to meet, do they? — because a cross-part corner joint cannot be cut without an answer. Parts are placed like faces are: a root that stays put and everyone else brought to an already-placed neighbour by one edge mate, so the placement graph is a tree for the same reason the face-bend graph is. No mate solver with degrees of freedom, no interference checking, no sub-assemblies, no exploded views — those remain non-goals.)*
 - Stretch-forming features (pressed drainer grooves, coved splashback radii formed by rolling — note these as annotations, don't model the deformation)
 - Nesting, CAM, toolpaths
 - Costing (deliberately deferred; the data for it — mass, cut length, bend count — falls out of the model anyway)
