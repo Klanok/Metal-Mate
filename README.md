@@ -13,8 +13,8 @@ respect.
 
 ## Status
 
-The domain core and the desktop shell are both built. 169 tests pass, plus
-10 browser tests against the built bundle.
+The domain core and the desktop shell are both built. 193 tests pass, plus
+16 browser tests against the built bundle.
 
 **Working today** (`core/`, 153 tests):
 
@@ -26,14 +26,14 @@ The domain core and the desktop shell are both built. 169 tests pass, plus
 | Unfold engine | bend allowance placement, cutouts, overlap and island detection |
 | Folded 3D view | face frames and bend arcs, fold fraction 0..1 for the animation |
 | Materials and bend tables | 304/316, aluminium, Zincalume, mild steel; calibration back-solve from a measured test strip |
-| Machine profile | bed, tonnage, die rack, throat, open height, thickness limits |
+| Machine profile | bed, tonnage, die rack, throat, open height, thickness limits; editable in the app, structurally checked, and flagged as a placeholder until confirmed |
 | Validation | 14 rules, each with a passing and a failing fixture; errors block export |
 | Benchtop template | an edge on any of the four sides (square drop / drop-and-return / boxed / upstand), corners that close and weld (45° mitred returns) or relieve, sink, hob and tap cutouts |
 | DXF R12 export | arcs as bulges, layer mapping via export profiles, golden-file tested |
 | DXF import | reader plus healing (chains loose lines and arcs into closed loops) |
 | Project files | JSON payload, schema version, migration seam |
 
-**The app** (`app/`, Tauri 2 + React + Three.js, 16 unit + 10 browser tests):
+**The app** (`app/`, Tauri 2 + React + Three.js, 40 unit + 16 browser tests):
 
 | Area | State |
 |---|---|
@@ -43,7 +43,8 @@ The domain core and the desktop shell are both built. 169 tests pass, plus
 | Validation panel | full report, and it says the machine is a placeholder |
 | Feature tree and bend table | what the template generated, and where each allowance came from |
 | Export | DXF button disabled while errors stand; `exportDxf` re-checks anyway |
-| Save / open | `.smp` project files through native dialogs |
+| Shop settings | press brake editor, and bend calibration that back-solves K from a folded test strip |
+| Save / open | `.smp` project files through native dialogs; the machine and bend tables travel with the part |
 
 The frontend is verified in a real browser: it loads, builds the default
 benchtop, renders both views, blocks export when a 3000 mm benchtop overruns
@@ -59,14 +60,17 @@ core but not yet surfaced in the UI.
 
 **Not yet verified against reality**, and this matters before anyone cuts metal:
 
-- `GENERIC_2500_40T` is a **placeholder press brake**. Every tonnage and
-  minimum-flange result is an estimate until it is replaced with the real
-  machine's bed, tonnage chart and die rack.
+- The press brake ships as a **placeholder**. Settings → Press brake replaces
+  it, and the tick that clears the placeholder flag is deliberately a person's
+  job: until someone has checked the bed, the tonnage chart and the die rack
+  against the machine on the floor, every tonnage and minimum-flange result is
+  an estimate and the report says so on every part.
 - The DXF writer has not been checked against the fabricator's CAM. Get one
   file the laser already accepts and treat it as the reference spec.
-- Bend allowances use the default K of 0.44. Fold a test strip and calibrate
-  before trusting a flat pattern — `kFromFlatLength()` and `withBendRow()` are
-  the workflow.
+- Bend allowances use the default K of 0.44 until somebody calibrates.
+  Settings → Bend calibration takes a folded test strip — angle, radius, both
+  legs measured to the apex, and the blank length — and solves for K, then
+  writes it into the material's bend table where the unfold engine picks it up.
 
 ## Installing
 
@@ -93,8 +97,8 @@ produce a build to test without minting a version number.
 
 ```bash
 npm install
-npm test          # 169 tests
-npm run test:ui -w @metal-mate/app   # 10 browser tests on the built bundle
+npm test          # 193 tests
+npm run test:ui -w @metal-mate/app   # 16 browser tests on the built bundle
 npm run typecheck
 npm run dev       # the UI in a browser, no Rust toolchain needed
 npm run tauri dev # the real desktop app

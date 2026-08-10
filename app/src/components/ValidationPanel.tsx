@@ -20,7 +20,9 @@ export function ValidationPanel({
   machine,
   buildError,
 }: ValidationPanelProps): JSX.Element {
-  const placeholder = machine.name.toLowerCase().includes('placeholder');
+  // An explicit flag, not a word in the name: somebody has to have gone
+  // through the machine's own numbers and confirmed them for this to clear.
+  const placeholder = machine.placeholder === true;
 
   return (
     <section className="panel validation" data-testid="validation-panel">
@@ -56,9 +58,9 @@ export function ValidationPanel({
 
       {placeholder && (
         <p className="caveat" data-testid="machine-caveat">
-          Checked against <strong>{machine.name}</strong>. Tonnage and minimum-flange results are
-          estimates from a placeholder machine — replace it with the real brake&apos;s bed, tonnage
-          chart and die rack before trusting them.
+          Checked against <strong>{machine.name}</strong>, which is still marked a placeholder.
+          Tonnage and minimum-flange results are estimates until its bed, tonnage chart and die
+          rack are the real machine&apos;s — set them under Settings.
         </p>
       )}
     </section>
