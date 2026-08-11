@@ -298,6 +298,31 @@ test.describe('the canopy template', () => {
     await expect(page.getByTestId('bend-table').locator('tbody tr')).toHaveCount(0);
   });
 
+  test('inverts the top seam onto the roof', async ({ page }) => {
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
+    await page.getByTestId('add-canopy').click();
+
+    const design = page.getByTestId('parts-panel').locator('.design').last();
+    const bends = page.getByTestId('bend-table').locator('tbody tr');
+    const select = (part: string): Promise<void> =>
+      design.locator('.panel-row', { hasText: part }).locator('button').first().click();
+
+    // By default the wall carries both lips and the roof is a flat plate.
+    await select('CAN-ROOF');
+    await expect(bends).toHaveCount(0);
+
+    await page.getByTestId('canopy-lip-on').selectOption('roof');
+    await expect(page.getByTestId('canopy-lip-note')).toContainText('down outside each wall');
+
+    // Now the four returns are on the roof...
+    await expect(bends).toHaveCount(4);
+    // ...and the wall keeps only the bottom lip that lands on the floor.
+    await select('CAN-FRONT');
+    await expect(bends).toHaveCount(1);
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export');
+  });
+
   test('rivets the seams, and refuses a lip the rivet will not fit', async ({ page }) => {
     await page.goto(url, { waitUntil: 'networkidle' });
     await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });

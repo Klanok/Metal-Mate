@@ -67,10 +67,23 @@ export function CanopyPanel({ params, materials, onChange }: CanopyPanelProps): 
           <span>Include a floor — leave it off if the canopy sits on the ute&apos;s own tray</span>
         </label>
         <NumberField label="Lip" value={params.lipMm ?? 0} onChange={(v) => patch({ lipMm: v })} />
+        <label className="field">
+          <span>Top seam</span>
+          <select
+            data-testid="canopy-lip-on"
+            value={params.lipOn ?? 'walls'}
+            onChange={(e) => patch({ lipOn: e.target.value as 'walls' | 'roof' })}
+          >
+            <option value="walls">Walls lip in, roof lands on them</option>
+            <option value="roof">Roof returns down, walls lap inside</option>
+          </select>
+        </label>
         <p className="muted" data-testid="canopy-lip-note">
-          {lip > 0
-            ? `Each wall turns ${lip} mm inward at the top and bottom, mitred at every corner. The roof lands on the top lips and the bottom lips land on the floor, so the outside height is still ${params.heightMm} mm.`
-            : 'Zero lip: the panels butt edge to edge, with nothing to bolt or clamp through.'}
+          {lip <= 0
+            ? 'Zero lip: the panels butt edge to edge, with nothing to bolt or clamp through.'
+            : (params.lipOn ?? 'walls') === 'roof'
+              ? `The roof turns ${lip} mm down outside each wall, mitred at every corner, and the wall laps up inside it. The top corner is a bend rather than a joint, so the rivets sit on the wall face below it instead of on the edge you look at. Outside height is still ${params.heightMm} mm.`
+              : `Each wall turns ${lip} mm inward at the top and bottom, mitred at every corner. The roof lands on the top lips and the bottom lips land on the floor, so the outside height is still ${params.heightMm} mm.`}
         </p>
       </fieldset>
 

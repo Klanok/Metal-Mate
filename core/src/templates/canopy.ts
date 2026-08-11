@@ -12,10 +12,14 @@
  * off it: panel outlines, bend angles, lip mitres, and the offsets that put one
  * panel against another. Square is the case where all the angles are zero.
  *
- * The construction is lipped, not butt-welded. Each wall turns inward at the
- * top and bottom; the roof lands on the top lips and the bottom lips land on
- * the floor. A butt-welded box has nothing to clamp, nothing to rivet through
- * and no stiffness at the seam.
+ * The construction is lipped, not butt-welded. A butt-welded box has nothing to
+ * clamp, nothing to rivet through and no stiffness at the seam.
+ *
+ * Which panel carries the lip at the roof seam is a choice, `lipOn`. By default
+ * each wall turns inward at the top and the roof lands on those four lips.
+ * Inverted, the roof turns a return down outside each wall and the wall laps up
+ * inside it, which puts a bend on the top corner instead of a joint and moves
+ * the rivets out of sight. Either way the bottom lips land on the floor.
  *
  * Dimensions are **outside** sizes, the way somebody measures a ute tray. The
  * panels are cut to the neutral surfaces half a thickness inside them, so the
@@ -96,6 +100,23 @@ export interface CanopyParams {
    * skeleton with nothing to rivet through.
    */
   readonly lipMm?: number;
+  /**
+   * Which panel carries the lip at the roof seam.
+   *
+   * `walls` is the plain box: each wall turns a lip inward at the top and the
+   * roof lands on those four lips. The seam, and every rivet in it, comes out
+   * on the top corner where you look at it.
+   *
+   * `roof` inverts that. The roof turns a return down outside each wall and the
+   * wall laps up inside it, so the top corner is a bend rather than a joint and
+   * the rivets move onto the wall face below it. That is the construction the
+   * Utemaster-style canopies read as: an unbroken top edge and no fastener in
+   * view. The corner is only as smooth as `bendRadiusMm` and the press tooling
+   * allow — a sweeping radius needs bump forming, which this does not do.
+   *
+   * The bottom seam is unaffected: a wall still turns a lip onto the floor.
+   */
+  readonly lipOn?: 'walls' | 'roof';
   /**
    * Rivets down every lip, or none.
    *
@@ -194,9 +215,25 @@ const PANEL_LABELS: Record<CanopyPanel, string> = {
   right: 'Right side',
 };
 
-/** Which deck a wall's lip lands against, at each end of the wall. */
-const DECK_OF = { bottom: 'floor', top: 'roof' } as const;
-type LipEdge = keyof typeof DECK_OF;
+/**
+ * An edge that can carry a lip.
+ *
+ * A wall names its horizontal edges by the deck they meet; the roof names each
+ * of its four edges for the wall it meets. So an edge name plus the panel it
+ * belongs to is enough to say which seam it is.
+ */
+type LipEdge = 'top' | 'bottom' | CanopyWall;
+
+/** The panel on the other side of a lipped seam. */
+function across(panel: CanopyPanel, edge: LipEdge): CanopyPanel {
+  if (isWall(panel)) return edge === 'top' ? 'roof' : 'floor';
+  return edge as CanopyWall;
+}
+
+/** True when the roof carries the return at the top seam rather than the walls. */
+function lipsOnRoof(params: CanopyParams): boolean {
+  return params.lipOn === 'roof';
+}
 
 /** Generate the canopy's parts and how they sit together. */
 export function canopyDocument(params: CanopyParams): TemplateDocument {
@@ -352,10 +389,17 @@ function panelShape(body: CanopyBody, params: CanopyParams, panel: CanopyPanel):
     edgeIndex.set(name, i);
   }
 
-  // Only walls are cut back, and only along the edges that carry a lip.
+  // A panel is cut back along the edges it carries a lip on.
   const insets = new Map<number, number>();
   for (const edge of lipEdgesFor(panel, params)) {
-    insets.set(edgeIndex.get(edge)!, lipRise(body, params, panel as CanopyWall, edge));
+    insets.set(edgeIndex.get(edge)!, lipRise(body, params, panel, edge));
+  }
+  if (isWall(panel) && lipsOnRoof(params)) {
+    // The wall laps up inside the roof's return, so its plate stops against the
+    // roof's inner surface rather than running on to the neutral corner. Half a
+    // thickness, taken along the wall rather than square to the roof.
+    const phi = dihedralDeg(body, panel, 'roof');
+    insets.set(edgeIndex.get('top')!, params.thicknessMm / 2 / Math.sin(toRadians(phi)));
   }
   if (isWall(panel) && params.floor === false) {
     // No floor to land on: the wall runs down to the outside bottom, so its
@@ -439,11 +483,19 @@ function isWall(panel: CanopyPanel): panel is CanopyWall {
 }
 
 /**
- * Which of a panel's edges carry a lip. Walls only, top always, bottom when
- * there is a floor to land on it.
+ * Which of a panel's edges carry a lip.
+ *
+ * With the lip on the walls: top always, bottom when there is a floor to land
+ * on it. With it on the roof: the roof carries all four returns, and a wall
+ * keeps only the bottom lip that lands on the floor.
  */
 function lipEdgesFor(panel: CanopyPanel, params: CanopyParams): LipEdge[] {
-  if (!isWall(panel) || (params.lipMm ?? 0) <= 0) return [];
+  if ((params.lipMm ?? 0) <= 0) return [];
+  if (lipsOnRoof(params)) {
+    if (panel === 'roof') return [...CANOPY_WALLS];
+    return isWall(panel) && params.floor !== false ? ['bottom'] : [];
+  }
+  if (!isWall(panel)) return [];
   return params.floor === false ? ['top'] : ['top', 'bottom'];
 }
 
@@ -468,22 +520,48 @@ function lipEdgesFor(panel: CanopyPanel, params: CanopyParams): LipEdge[] {
 function lipRise(
   body: CanopyBody,
   params: CanopyParams,
-  wall: CanopyWall,
+  panel: CanopyPanel,
   edge: LipEdge,
 ): number {
-  const phi = dihedralDeg(body, wall, DECK_OF[edge]);
-  const toCorner = (params.thicknessMm / 2) * Math.tan(toRadians(phi) / 2);
-  return toCorner + lipSetback(body, params, wall, edge);
+  const phi = dihedralDeg(body, panel, across(panel, edge));
+  const setback = lipSetback(body, params, panel, edge);
+  if (isWall(panel)) {
+    const toCorner = (params.thicknessMm / 2) * Math.tan(toRadians(phi) / 2);
+    return toCorner + setback;
+  }
+  return setback - returnReach(params.thicknessMm, phi);
+}
+
+/**
+ * How far past the body's corner a roof return's outside corner sits, mm.
+ *
+ * The return lies *outside* the wall, so its neutral plane is a full thickness
+ * outboard of the wall's — the two sheets are face to face, and each contributes
+ * half a thickness. Its outside surface is another half beyond that, so the
+ * corner the roof's and the return's outside surfaces make is 1.5 thicknesses
+ * out from the wall's neutral plane.
+ *
+ * Measured along the roof, a plane that far outboard is met at
+ * `T(1.5 + 0.5 cos phi) / sin phi`: the `sin` is the obliquity of the roof to
+ * the wall, and the `cos` term is the shift from the roof's own outside surface
+ * sitting half a thickness above its neutral plane. At a square corner that is
+ * `1.5T`, and the lip rise comes out `R + T - 1.5T`, so a canopy with a bend
+ * radius bigger than half a thickness has its roof plate stopping *short* of
+ * the corner even though the return finishes outboard of the wall.
+ */
+function returnReach(thicknessMm: number, phi: number): number {
+  const rad = toRadians(phi);
+  return (thicknessMm * (1.5 + 0.5 * Math.cos(rad))) / Math.sin(rad);
 }
 
 /** What the bend to the lip takes out of the outside corner, mm. */
 function lipSetback(
   body: CanopyBody,
   params: CanopyParams,
-  wall: CanopyWall,
+  panel: CanopyPanel,
   edge: LipEdge,
 ): number {
-  const phi = dihedralDeg(body, wall, DECK_OF[edge]);
+  const phi = dihedralDeg(body, panel, across(panel, edge));
   return outsideSetback(180 - phi, params.bendRadiusMm, params.thicknessMm);
 }
 
@@ -500,17 +578,16 @@ function panelPart(
   }
 
   const lipFeatures = lipEdgesFor(panel, params).flatMap((edge): Feature[] => {
-    const wall = panel as CanopyWall;
-    const phi = dihedralDeg(body, wall, DECK_OF[edge]);
-    const plate = lip - lipSetback(body, params, wall, edge);
+    const phi = dihedralDeg(body, panel, across(panel, edge));
+    const plate = lip - lipSetback(body, params, panel, edge);
     if (plate <= 0) {
       throw new CanopyParameterError(
-        `a ${lip} mm lip is inside the ${lipSetback(body, params, wall, edge).toFixed(2)} mm the bend itself takes, so there is no flat to fold`,
+        `a ${lip} mm lip is inside the ${lipSetback(body, params, panel, edge).toFixed(2)} mm the bend itself takes, so there is no flat to fold`,
       );
     }
     const [startCorner, endCorner] = lipCorners(shape, edge);
-    const mitreStartDeg = mitreAt(body, wall, edge, startCorner);
-    const mitreEndDeg = mitreAt(body, wall, edge, endCorner);
+    const mitreStartDeg = mitreAt(body, panel, edge, startCorner);
+    const mitreEndDeg = mitreAt(body, panel, edge, endCorner);
     const parent = edges[edge]!;
     const width = Math.hypot(parent.p1.x - parent.p0.x, parent.p1.y - parent.p0.y);
     const flange: Feature = {
@@ -522,18 +599,19 @@ function panelPart(
       // square canopy, more where a wall leans out from the deck, less where it
       // leans in.
       angleDeg: 180 - phi,
-      // Both lips turn the same way, toward the inside of the box. The fold
-      // direction is measured against each edge's own direction, and the two
-      // edges run opposite ways round the wall's boundary, so the same value on
-      // both is the same physical side. Using different values sends one lip in
-      // and one out.
+      // Every lip turns the same way, away from the panel's outward normal: a
+      // wall's lip inward across the box, the roof's return down outside the
+      // wall. The fold direction is measured against each edge's own direction,
+      // and the edges run opposite ways round the panel's boundary, so the same
+      // value on all of them is the same physical side. Using different values
+      // sends one lip in and one out.
       direction: 'down',
       insideRadiusMm: params.bendRadiusMm,
-      // Two walls' lips meet at each upright corner as strips in one plane, so
-      // each end is cut to half that corner. Square gives the familiar 45.
+      // Two lips meet at each corner as strips in one plane, so each end is cut
+      // to half that corner. Square gives the familiar 45.
       mitreStartDeg,
       mitreEndDeg,
-      label: `${PANEL_LABELS[panel]} ${edge} lip`,
+      label: lipLabel(panel, edge),
     };
     return [
       flange,
@@ -591,7 +669,7 @@ function rivetHoles(
 ): Feature[] {
   if (params.rivet === undefined) return [];
   const { hole, edge: clear, pitch } = riveted(params.rivet);
-  const where = `${PANEL_LABELS[panel]} ${edge} lip`;
+  const where = lipLabel(panel, edge);
   if (!(hole > 0) || !(pitch > 0) || !(clear > 0)) {
     throw new CanopyParameterError('rivet diameter, pitch and edge distance must all be positive');
   }
@@ -637,29 +715,20 @@ function lipCorners(shape: PanelShape, edge: LipEdge): [CornerKey, CornerKey] {
 /**
  * Half the corner two lips meet at, as a rake off square.
  *
- * The lips of two neighbouring walls lie in one plane and meet at an upright
- * corner of the body. Whatever angle they meet at, cutting each of them to half
- * of it closes the frame — a mitre. 45 is the square case, and the rake the
- * flange machinery wants is the departure from a square cut, `90 - corner/2`.
+ * Two lips lie in one plane and meet at a corner of the body — either two walls'
+ * lips at an upright corner, or two of the roof's returns at a roof corner.
+ * Whatever angle they meet at, cutting each of them to half of it closes the
+ * frame: a mitre. 45 is the square case, and the rake the flange machinery wants
+ * is the departure from a square cut, `90 - corner/2`.
  */
 function mitreAt(
   body: CanopyBody,
-  wall: CanopyWall,
+  panel: CanopyPanel,
   edge: LipEdge,
   at: CornerKey,
 ): number {
-  const neighbour = CANOPY_WALLS.find((w) => w !== wall && at.split('-').includes(w));
-  if (neighbour === undefined) {
-    throw new CanopyParameterError(`no wall meets the ${wall} wall at ${at}`);
-  }
-  const psi = toDegrees(
-    Math.acos(
-      Math.max(
-        -1,
-        Math.min(1, dot3(lipRunFrom(body, wall, edge, at), lipRunFrom(body, neighbour, edge, at))),
-      ),
-    ),
-  );
+  const [mine, theirs] = lipsMeetingAt(body, panel, edge, at);
+  const psi = toDegrees(Math.acos(Math.max(-1, Math.min(1, dot3(mine, theirs)))));
   const mitre = 90 - psi / 2;
   if (Math.abs(mitre) > 75) {
     throw new CanopyParameterError(
@@ -669,9 +738,39 @@ function mitreAt(
   return mitre;
 }
 
-/** Unit direction a wall's lipped edge runs, leaving the given corner. */
-function lipRunFrom(body: CanopyBody, wall: CanopyWall, edge: LipEdge, at: CornerKey): Vec3 {
-  const [a, b] = panelOutline(body, wall).edges.get(edge)!;
+/**
+ * The two lip runs that meet at one corner.
+ *
+ * On the walls they belong to two different panels meeting at an upright corner
+ * of the body, each along its own top or bottom edge. On the roof both belong to
+ * the roof itself: its four returns turn down off four edges of one plate, and
+ * two of them meet at every corner. Either way the mitre is half the angle
+ * between the runs, so all this has to do is find the other one.
+ */
+function lipsMeetingAt(
+  body: CanopyBody,
+  panel: CanopyPanel,
+  edge: LipEdge,
+  at: CornerKey,
+): [Vec3, Vec3] {
+  const mine = lipRunFrom(body, panel, edge, at);
+  if (isWall(panel)) {
+    const neighbour = CANOPY_WALLS.find((w) => w !== panel && at.split('-').includes(w));
+    if (neighbour === undefined) {
+      throw new CanopyParameterError(`no wall meets the ${panel} wall at ${at}`);
+    }
+    return [mine, lipRunFrom(body, neighbour, edge, at)];
+  }
+  const other = CANOPY_WALLS.find((w) => w !== edge && at.split('-').includes(w));
+  if (other === undefined) {
+    throw new CanopyParameterError(`no second ${panel} edge meets the ${edge} edge at ${at}`);
+  }
+  return [mine, lipRunFrom(body, panel, other, at)];
+}
+
+/** Unit direction a panel's lipped edge runs, leaving the given corner. */
+function lipRunFrom(body: CanopyBody, panel: CanopyPanel, edge: LipEdge, at: CornerKey): Vec3 {
+  const [a, b] = panelOutline(body, panel).edges.get(edge)!;
   const other = a === at ? b : a;
   return normalize3(sub3(corner(body, other), corner(body, at)));
 }
@@ -770,9 +869,21 @@ function signedAngle(from: Vec3, to: Vec3, axis: Vec3): number {
 // Names
 // ---------------------------------------------------------------------------
 
-/** A wall's lip along one of its edges. */
+/** A panel's lip along one of its edges. */
 function lipFeatureId(panel: CanopyPanel, edge: LipEdge): string {
   return `${panel}-${edge}-lip`;
+}
+
+/**
+ * What to call a lip on the drawing.
+ *
+ * A wall turns a lip inward; the roof turns a return down outside the wall. They
+ * are the same feature and the shop calls them different things, so the label
+ * follows the shop rather than the code.
+ */
+function lipLabel(panel: CanopyPanel, edge: LipEdge): string {
+  const what = panel === 'roof' ? 'return' : 'lip';
+  return `${PANEL_LABELS[panel]} ${edge} ${what}`;
 }
 
 function panelFaceId(panel: CanopyPanel): FaceId {
