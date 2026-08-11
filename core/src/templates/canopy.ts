@@ -30,7 +30,7 @@
 import { type Feature, type GrainDirection, type Part } from '../features/types.js';
 import { outsideSetback } from '../materials/allowance.js';
 import { type Vec2, v2 } from '../geometry/vec2.js';
-import { polygon } from '../geometry/loop.js';
+import { circle, polygon } from '../geometry/loop.js';
 import { profile } from '../geometry/profile.js';
 import {
   type Vec3,
@@ -96,7 +96,55 @@ export interface CanopyParams {
    * skeleton with nothing to rivet through.
    */
   readonly lipMm?: number;
+  /**
+   * Rivets down every lip, or none.
+   *
+   * The seams are riveted, not welded, so the lip is not just a stiffener — it
+   * is what the fastener goes through, and its depth has to answer to the rivet
+   * rather than to taste.
+   */
+  readonly rivet?: RivetSpec;
   readonly grain?: GrainDirection;
+}
+
+/**
+ * What is going through the seam.
+ *
+ * Lives on the template for now rather than in shop settings, because two
+ * designs may well be riveted differently and nothing yet says a shop has one
+ * rivet. If it turns out there is only ever one, it belongs next to the press
+ * brake.
+ */
+export interface RivetSpec {
+  /** Shank diameter, mm — the size the rivet is called. */
+  readonly diameterMm: number;
+  /** Hole diameter, mm. Defaults to the shank plus 0.2 for clearance. */
+  readonly holeMm?: number;
+  /**
+   * Target pitch along the seam, mm.
+   *
+   * A target, not a promise: the holes divide each seam evenly, so the pitch
+   * that comes out is this or a little less. Nobody wants one short space at
+   * the end of a 1.8 m run.
+   */
+  readonly pitchMm: number;
+  /**
+   * Minimum from a hole centre to any edge or bend, mm. Defaults to 2 x the
+   * shank, which is the usual rule for blind rivets in sheet.
+   */
+  readonly edgeDistanceMm?: number;
+}
+
+export function riveted(spec: RivetSpec): {
+  hole: number;
+  edge: number;
+  pitch: number;
+} {
+  return {
+    hole: spec.holeMm ?? spec.diameterMm + 0.2,
+    edge: spec.edgeDistanceMm ?? spec.diameterMm * 2,
+    pitch: spec.pitchMm,
+  };
 }
 
 export const DEFAULT_CANOPY: CanopyParams = {
@@ -111,6 +159,7 @@ export const DEFAULT_CANOPY: CanopyParams = {
   roofDropMm: 0,
   floor: true,
   lipMm: 25,
+  rivet: { diameterMm: 4.8, pitchMm: 100 },
   grain: 'length',
 };
 
@@ -450,7 +499,7 @@ function panelPart(
     edges[name] = { p0: shape.at[i]!, p1: shape.at[(i + 1) % shape.at.length]! };
   }
 
-  const lipFeatures = lipEdgesFor(panel, params).map((edge): Feature => {
+  const lipFeatures = lipEdgesFor(panel, params).flatMap((edge): Feature[] => {
     const wall = panel as CanopyWall;
     const phi = dihedralDeg(body, wall, DECK_OF[edge]);
     const plate = lip - lipSetback(body, params, wall, edge);
@@ -460,7 +509,11 @@ function panelPart(
       );
     }
     const [startCorner, endCorner] = lipCorners(shape, edge);
-    return {
+    const mitreStartDeg = mitreAt(body, wall, edge, startCorner);
+    const mitreEndDeg = mitreAt(body, wall, edge, endCorner);
+    const parent = edges[edge]!;
+    const width = Math.hypot(parent.p1.x - parent.p0.x, parent.p1.y - parent.p0.y);
+    const flange: Feature = {
       kind: 'edge-flange',
       id: featureId(lipFeatureId(panel, edge)),
       edge: { faceId: panelFaceId(panel), edgeName: edge },
@@ -478,10 +531,14 @@ function panelPart(
       insideRadiusMm: params.bendRadiusMm,
       // Two walls' lips meet at each upright corner as strips in one plane, so
       // each end is cut to half that corner. Square gives the familiar 45.
-      mitreStartDeg: mitreAt(body, wall, edge, startCorner),
-      mitreEndDeg: mitreAt(body, wall, edge, endCorner),
+      mitreStartDeg,
+      mitreEndDeg,
       label: `${PANEL_LABELS[panel]} ${edge} lip`,
     };
+    return [
+      flange,
+      ...rivetHoles(params, panel, edge, { width, length: plate, mitreStartDeg, mitreEndDeg }),
+    ];
   });
 
   return {
@@ -505,6 +562,70 @@ function panelPart(
     ],
     template: { kind: CANOPY_TEMPLATE_KIND, params },
   };
+}
+
+/**
+ * The rivet holes down one lip, in that lip's own flat coordinates.
+ *
+ * A flange's local space runs x along its bend line from the start of the
+ * parent edge, and y from the bend tangent (y = 0) out to the free edge
+ * (y = length). So the holes sit at y = length/2 — down the middle of the flat,
+ * which is the only line that gives the same clearance to the bend as to the
+ * free edge, and therefore the one that lets the lip be as narrow as possible.
+ *
+ * Across the seam the run is bounded by the mitres, which slope. A hole's
+ * clearance from a raked end is measured square to that end, so the usable span
+ * is inset by `edge / cos(mitre)` rather than by `edge`.
+ *
+ * ONE SIDE ONLY: the holes go in the lip and not in the panel that lands on it.
+ * Their spacing along the seam would match on both parts, but their distance
+ * from the seam depends on the bend allowance being right, and K is one of the
+ * numbers this shop has not measured yet. A 0.2 mm clearance hole does not
+ * forgive that. Clamp the deck to the lip and drill through.
+ */
+function rivetHoles(
+  params: CanopyParams,
+  panel: CanopyPanel,
+  edge: LipEdge,
+  flange: { width: number; length: number; mitreStartDeg: number; mitreEndDeg: number },
+): Feature[] {
+  if (params.rivet === undefined) return [];
+  const { hole, edge: clear, pitch } = riveted(params.rivet);
+  const where = `${PANEL_LABELS[panel]} ${edge} lip`;
+  if (!(hole > 0) || !(pitch > 0) || !(clear > 0)) {
+    throw new CanopyParameterError('rivet diameter, pitch and edge distance must all be positive');
+  }
+  if (flange.length < 2 * clear) {
+    throw new CanopyParameterError(
+      `the ${where} is ${flange.length.toFixed(1)} mm of flat, and a ${params.rivet.diameterMm} mm rivet needs ${(2 * clear).toFixed(1)} mm to keep ${clear} mm off both the bend and the free edge — deepen the lip or use a smaller rivet`,
+    );
+  }
+
+  const y = flange.length / 2;
+  // At mid-height each mitre has already eaten half its rake.
+  const rake = (deg: number): number =>
+    Math.tan(toRadians(deg)) * y + clear / Math.cos(toRadians(deg));
+  const from = rake(flange.mitreStartDeg);
+  const to = flange.width - rake(flange.mitreEndDeg);
+  const run = to - from;
+  if (run < 0) {
+    throw new CanopyParameterError(
+      `the ${where} has no room for a rivet between its mitred ends`,
+    );
+  }
+
+  const gaps = Math.max(1, Math.ceil(run / pitch));
+  const count = gaps + 1;
+  return Array.from({ length: count }, (_, i): Feature => {
+    const x = from + (run * i) / gaps;
+    return {
+      kind: 'cutout',
+      id: featureId(`${panel}-${edge}-rivet-${i + 1}`),
+      faceId: faceId(lipFeatureId(panel, edge)),
+      loop: circle(x, y, hole / 2),
+      label: `${where} rivet ${i + 1} of ${count}`,
+    };
+  });
 }
 
 /** The body corners at the start and end of a wall's lipped edge. */

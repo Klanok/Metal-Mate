@@ -7,7 +7,55 @@
  * join them, and where each bend's allowance came from.
  */
 
-import type { BuildResult } from '@metal-mate/core';
+import type { BuildResult, Feature } from '@metal-mate/core';
+
+interface FeatureRow {
+  readonly id: string;
+  readonly kind: string;
+  readonly label?: string;
+}
+
+/**
+ * Collapse a run of identical cutouts on one face into a single row.
+ *
+ * A riveted seam is 19 holes, and a canopy wall is four of those runs. Listing
+ * every one buries the two features that actually describe the part, so a run
+ * is shown as what it is — a line of holes, and how many.
+ */
+export function groupRuns(features: readonly Feature[]): FeatureRow[] {
+  const rows: FeatureRow[] = [];
+  let on: string | null = null;
+  let ids: string[] = [];
+
+  const flush = (): void => {
+    if (on === null) return;
+    rows.push(
+      ids.length === 1
+        ? { id: ids[0]!, kind: 'cutout', label: `1 hole in ${on}` }
+        : { id: `${on} holes`, kind: 'cutout', label: `${ids.length} holes` },
+    );
+    on = null;
+    ids = [];
+  };
+
+  for (const f of features) {
+    if (f.kind === 'cutout') {
+      const face = String(f.faceId);
+      if (on !== null && on !== face) flush();
+      on = face;
+      ids.push(String(f.id));
+      continue;
+    }
+    flush();
+    rows.push({
+      id: String(f.id),
+      kind: f.kind,
+      ...(f.label !== undefined ? { label: f.label } : {}),
+    });
+  }
+  flush();
+  return rows;
+}
 
 export interface FeatureTreeProps {
   readonly result: BuildResult | null;
@@ -29,11 +77,11 @@ export function FeatureTree({ result }: FeatureTreeProps): JSX.Element {
     <section className="panel tree" data-testid="feature-tree">
       <h2>Features</h2>
       <ul className="features">
-        {part.features.map((f) => (
-          <li key={f.id}>
-            <code>{f.id}</code>
-            <span className="kind">{f.kind}</span>
-            {f.label !== undefined && <span className="muted">{f.label}</span>}
+        {groupRuns(part.features).map((row) => (
+          <li key={row.id}>
+            <code>{row.id}</code>
+            <span className="kind">{row.kind}</span>
+            {row.label !== undefined && <span className="muted">{row.label}</span>}
           </li>
         ))}
       </ul>

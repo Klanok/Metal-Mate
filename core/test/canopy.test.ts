@@ -179,6 +179,75 @@ describe('the parts it makes', () => {
     }
   });
 
+  it('puts a rivet line down every lip, evenly divided', () => {
+    const doc = canopyDocument(CANOPY);
+    const left = doc.parts.find((p) => p.parameters.partId === 'CAN-LEFT')!;
+    const holes = left.features.filter((f) => f.kind === 'cutout');
+    // Two lips, each with its own run of rivets.
+    const top = holes.filter((h) => h.faceId === faceId('left-top-lip'));
+    const bottom = holes.filter((h) => h.faceId === faceId('left-bottom-lip'));
+    expect(top.length).toBeGreaterThan(2);
+    expect(top.length).toEqual(bottom.length);
+
+    const plate = LIP - SETBACK;
+    const clear = CANOPY.rivet!.diameterMm * 2;
+    // A circle is two vertices a diameter apart, so the centre is their mean.
+    const xs = top.map((h) => (h.loop.verts[0]!.x + h.loop.verts[1]!.x) / 2);
+    const ys = top.map((h) => h.loop.verts[0]!.y);
+
+    // Down the middle of the flat: the only line with the same clearance to the
+    // bend as to the free edge.
+    for (const y of ys) expect(y).toBeCloseTo(plate / 2, 6);
+    // Evenly spaced, at the target pitch or a little under — never over.
+    const gaps = xs.slice(1).map((x, i) => x - xs[i]!);
+    for (const gap of gaps) {
+      expect(gap).toBeCloseTo(gaps[0]!, 6);
+      expect(gap).toBeLessThanOrEqual(CANOPY.rivet!.pitchMm + 1e-9);
+    }
+    expect(gaps[0]).toBeGreaterThan(CANOPY.rivet!.pitchMm * 0.8);
+    // Clear of the mitred ends, measured square to the rake rather than along
+    // the lip — a 45 degree cut is further away than its x offset suggests.
+    expect(Math.min(...xs)).toBeGreaterThanOrEqual(plate / 2 + clear * Math.SQRT2 - 1e-9);
+  });
+
+  it('refuses a lip too shallow for the rivet going through it', () => {
+    // 12 mm of lip leaves 8.4 mm of flat, and a 4.8 mm rivet wants 9.6 mm each
+    // side of centre. Better to say so than to put holes in the radius.
+    expect(() => canopyDocument({ ...CANOPY, lipMm: 12 })).toThrow(CanopyParameterError);
+    expect(() => canopyDocument({ ...CANOPY, lipMm: 12 })).toThrow(
+      /deepen the lip or use a smaller rivet/,
+    );
+    // A smaller rivet wants less lip: 3.2 mm needs 12.8 mm of flat where 4.8
+    // needs 19.2, so an 18 mm lip carries one and not the other.
+    expect(() =>
+      canopyDocument({ ...CANOPY, lipMm: 18, rivet: { diameterMm: 3.2, pitchMm: 80 } }),
+    ).not.toThrow();
+    expect(() => canopyDocument({ ...CANOPY, lipMm: 18 })).toThrow(/deepen the lip/);
+    // ...and no rivets at all is a plain folded lip.
+    const { rivet: _rivet, ...noRivets } = CANOPY;
+    const plain = canopyDocument({ ...noRivets, lipMm: 12 });
+    expect(plain.parts.flatMap((p) => p.features).filter((f) => f.kind === 'cutout')).toEqual([]);
+  });
+
+  it('carries the rivet holes through to the flat pattern', () => {
+    // The holes are on a folded face, not the base one, so they have to survive
+    // the unfold to reach the laser at all.
+    const built = buildDocument(canopyDocument(CANOPY).parts, {
+      machine: { ...GENERIC_2500_40T, bedLengthMm: 3000 },
+    });
+    const wall = built.parts.find((p) => p.part.parameters.partId === 'CAN-LEFT')!;
+    if (!wall.ok) throw new Error('the left wall did not build');
+    const doc = canopyDocument(CANOPY);
+    const wanted = doc.parts
+      .find((p) => p.parameters.partId === 'CAN-LEFT')!
+      .features.filter((f) => f.kind === 'cutout').length;
+    expect(wall.result.flat.profile.inners).toHaveLength(wanted);
+    // Round holes stay round: arcs out to the DXF, never a polygon.
+    for (const inner of wall.result.flat.profile.inners) {
+      expect(inner.verts.some((v) => v.bulge !== 0)).toBe(true);
+    }
+  });
+
   it('folds each lip inward and mitres both its ends', () => {
     const doc = canopyDocument(CANOPY);
     const left = doc.parts.find((p) => p.parameters.partId === 'CAN-LEFT')!;

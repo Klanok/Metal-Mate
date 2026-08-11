@@ -17,6 +17,12 @@ import type { CanopyMeasures, CanopyParams, Material } from '@metal-mate/core';
 import { canopyMeasures, canopyPanels } from '@metal-mate/core';
 import { NumberField } from './NumberField.js';
 
+/** Drop the rivet spec entirely rather than setting it undefined. */
+function withoutRivets(params: CanopyParams): CanopyParams {
+  const { rivet: _rivet, ...rest } = params;
+  return rest;
+}
+
 function measuresOf(params: CanopyParams): CanopyMeasures | null {
   try {
     return canopyMeasures(params);
@@ -66,6 +72,48 @@ export function CanopyPanel({ params, materials, onChange }: CanopyPanelProps): 
             ? `Each wall turns ${lip} mm inward at the top and bottom, mitred at every corner. The roof lands on the top lips and the bottom lips land on the floor, so the outside height is still ${params.heightMm} mm.`
             : 'Zero lip: the panels butt edge to edge, with nothing to bolt or clamp through.'}
         </p>
+      </fieldset>
+
+      <fieldset data-testid="canopy-rivets">
+        <legend>Rivets</legend>
+        <label className="field toggle">
+          <input
+            type="checkbox"
+            data-testid="canopy-riveted"
+            checked={params.rivet !== undefined}
+            onChange={(e) =>
+              onChange(
+                e.target.checked
+                  ? { ...params, rivet: params.rivet ?? { diameterMm: 4.8, pitchMm: 100 } }
+                  : withoutRivets(params),
+              )
+            }
+          />
+          <span>Rivet the seams</span>
+        </label>
+        {params.rivet !== undefined && (
+          <>
+            <NumberField
+              label="Rivet"
+              value={params.rivet.diameterMm}
+              step={0.2}
+              onChange={(v) => patch({ rivet: { ...params.rivet!, diameterMm: v } })}
+            />
+            <NumberField
+              label="Pitch"
+              value={params.rivet.pitchMm}
+              step={5}
+              onChange={(v) => patch({ rivet: { ...params.rivet!, pitchMm: v } })}
+            />
+            <p className="muted" data-testid="canopy-rivet-note">
+              Holes go down the middle of each lip at this pitch or a little under, so the run
+              divides evenly. They are cut in the <strong>lip only</strong>: the spacing would match
+              on the panel that lands on it, but how far the holes sit from the seam depends on the
+              bend allowance, and K has not been measured for this shop yet. Clamp up and drill
+              through.
+            </p>
+          </>
+        )}
       </fieldset>
 
       <fieldset data-testid="canopy-taper">

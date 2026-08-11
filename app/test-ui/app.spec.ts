@@ -298,6 +298,30 @@ test.describe('the canopy template', () => {
     await expect(page.getByTestId('bend-table').locator('tbody tr')).toHaveCount(0);
   });
 
+  test('rivets the seams, and refuses a lip the rivet will not fit', async ({ page }) => {
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
+    await page.getByTestId('add-canopy').click();
+    await expect(page.getByTestId('canopy-rivet-note')).toContainText('lip only');
+
+    // A 12 mm lip leaves 8.4 mm of flat, and a 4.8 mm rivet wants 19.2. Better
+    // to say so than to put holes in the bend radius.
+    await page
+      .getByTestId('canopy-panel')
+      .locator('.field.number', { hasText: 'Lip' })
+      .locator('input')
+      .fill('12');
+    const design = page.getByTestId('parts-panel').locator('.design').last();
+    await expect(design).toContainText('will not build');
+    await expect(design).toContainText('deepen the lip');
+
+    // Turning the rivets off leaves a plain folded lip, which that depth
+    // carries perfectly well.
+    await page.getByTestId('canopy-riveted').uncheck();
+    await expect(design.locator('.panel-row')).toHaveCount(6);
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export');
+  });
+
   test('tapers the body and says what it then measures', async ({ page }) => {
     await page.goto(url, { waitUntil: 'networkidle' });
     await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
