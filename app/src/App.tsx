@@ -66,7 +66,7 @@ export function App(): JSX.Element {
     foldFraction,
     kernel.ready,
   );
-  const { document, expanded, active, buildByUid, folded, error } = built;
+  const { document, expanded, active, buildByUid, scene, error } = built;
   const result = active !== null && active.ok ? active.result : null;
   const report = result?.report ?? null;
   const canExport = result !== null && report !== null && report.exportAllowed;
@@ -301,11 +301,7 @@ export function App(): JSX.Element {
               </div>
             )}
             {kernel.ready && view === '3d' && (
-              <Viewport3D
-                graph={result?.graph ?? null}
-                folded={folded ?? null}
-                showEdges={showEdges}
-              />
+              <Viewport3D scene={scene} showEdges={showEdges} />
             )}
             {kernel.ready && view === 'flat' && <FlatPreview flat={result?.flat ?? null} showBendLines />}
           </div>

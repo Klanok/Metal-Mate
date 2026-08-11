@@ -242,6 +242,27 @@ test.describe('the canopy template', () => {
     await expect(page.getByTestId('canopy-caveat')).toContainText('skeleton');
   });
 
+  test('keeps the size fields on screen, not below a six-panel list', async ({ page }) => {
+    // Reported from a real machine: "canopy appears but no option to change
+    // sizes". The fields existed — a canopy's six panels pushed them past the
+    // bottom of a column most people do not realise scrolls.
+    await page.setViewportSize({ width: 1400, height: 700 });
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
+    await page.getByTestId('add-canopy').click();
+
+    for (const label of ['Length', 'Width', 'Height']) {
+      const field = page
+        .getByTestId('canopy-panel')
+        .locator('.field.number', { hasText: label })
+        .first();
+      await expect(field).toBeVisible();
+      const box = await field.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.y + box!.height).toBeLessThanOrEqual(700);
+    }
+  });
+
   test('makes six panels from one design', async ({ page }) => {
     await page.goto(url, { waitUntil: 'networkidle' });
     await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
@@ -267,6 +288,27 @@ test.describe('the canopy template', () => {
     await page.getByTestId('canopy-floor').uncheck();
     await expect(design.locator('.panel-row')).toHaveCount(5);
     await expect(design).not.toContainText('CAN-FLOOR');
+  });
+
+  test('shows the panels assembled, not one flat plate', async ({ page }) => {
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
+    // A benchtop is one part, so the viewport draws one thing.
+    await expect(page.getByTestId('viewport-3d')).toHaveAttribute('data-parts', '1');
+
+    await page.getByTestId('add-canopy').click();
+    // Selecting the design draws all six panels where the assembly puts them,
+    // which is the only way to see whether the box actually closes up.
+    await expect(page.getByTestId('viewport-3d')).toHaveAttribute('data-parts', '6');
+
+    // Picking one panel drops back to that panel on its own, which is what you
+    // want when checking a flat pattern.
+    await page.getByTestId('parts-panel').locator('.panel-row').first().locator('button').click();
+    await expect(page.getByTestId('viewport-3d')).toHaveAttribute('data-parts', '1');
+
+    // ...and going back to the design reassembles it.
+    await page.getByTestId('parts-panel').locator('.design').last().locator('.part-select').click();
+    await expect(page.getByTestId('viewport-3d')).toHaveAttribute('data-parts', '6');
   });
 
   test('a panel can be picked and put on screen', async ({ page }) => {

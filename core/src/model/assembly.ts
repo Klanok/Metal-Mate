@@ -58,6 +58,15 @@ export interface EdgeMate {
   readonly angleDeg: number;
   /** Slide along the shared edge, mm. */
   readonly offsetMm?: number;
+  /**
+   * Lift the placed part off the host's face by this much, mm.
+   *
+   * Zero is a butt joint: the two neutral surfaces meet on the corner line.
+   * One thickness is a **lap**: one sheet lies on the other, which is what a
+   * panel landing on a folded lip actually does. Without it the two sheets
+   * would occupy the same space and nothing downstream would say so.
+   */
+  readonly standoffMm?: number;
   readonly label?: string;
 }
 
@@ -110,6 +119,28 @@ export function placeFrame(outer: Frame3, inner: Frame3): Frame3 {
     xAxis: placeDirection(outer, inner.xAxis),
     yAxis: placeDirection(outer, inner.yAxis),
     normal: placeDirection(outer, inner.normal),
+  };
+}
+
+/**
+ * Carry a whole folded part into assembly space.
+ *
+ * Everything in a `FoldedPart` is already world geometry in that part's own
+ * space, so placing it is one rigid transform applied to every frame, axis and
+ * tangent. Doing it here rather than in the renderer means the assembly view
+ * and any geometric check see exactly the same numbers.
+ */
+export function placeFoldedPart(folded: FoldedPart, at: Frame3): FoldedPart {
+  return {
+    ...folded,
+    faces: folded.faces.map((f) => ({ ...f, frame: placeFrame(at, f.frame) })),
+    bends: folded.bends.map((b) => ({
+      ...b,
+      axisOrigin: placePoint(at, b.axisOrigin),
+      axisDir: placeDirection(at, b.axisDir),
+      tangentA: [placePoint(at, b.tangentA[0]), placePoint(at, b.tangentA[1])] as const,
+      tangentB: [placePoint(at, b.tangentB[0]), placePoint(at, b.tangentB[1])] as const,
+    })),
   };
 }
 
@@ -223,6 +254,9 @@ export function checkAssembly(
         message: `the two edges are ${lengthA.toFixed(3)} and ${lengthB.toFixed(3)} mm long, so they do not meet along their whole length`,
       });
     }
+    if ((mate.standoffMm ?? 0) < 0) {
+      problems.push({ mateId: mate.id, message: 'standoff cannot be negative; flip the mate instead' });
+    }
     if (!(mate.angleDeg > -180 && mate.angleDeg < 180)) {
       problems.push({ mateId: mate.id, message: 'mate angle is a departure from flat, so it sits between -180 and 180' });
     }
@@ -335,9 +369,13 @@ function solveMate(guest: PlacedPart, mate: EdgeMate, target: WorldEdge): Frame3
 
   // 3. Slide the guest's edge start onto the target's edge end — they run
   //    opposite ways, so those are the ends that coincide — plus any offset
-  //    the mate asks for along the shared line.
+  //    the mate asks for along the shared line, and any standoff off the
+  //    host's face for a lap rather than a butt.
   const guestStart = placePoint(frame, local.p0);
-  const anchor = add3(target.p1, scale3(axis, -(mate.offsetMm ?? 0)));
+  const anchor = add3(
+    add3(target.p1, scale3(axis, -(mate.offsetMm ?? 0))),
+    scale3(target.normal, mate.standoffMm ?? 0),
+  );
   return { ...frame, origin: add3(frame.origin, sub3(anchor, guestStart)) };
 }
 
