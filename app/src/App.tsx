@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { BenchtopParams, ExportProfile } from '@metal-mate/core';
+import type { BenchtopParams, CanopyParams, ExportProfile, Part } from '@metal-mate/core';
 import {
   CUT_ONLY_EXPORT_PROFILE,
   DEFAULT_EXPORT_PROFILE,
-  benchtopPart,
   deserializeProject,
   exportDocumentDxf,
   exportDxf,
   serializeProject,
 } from '@metal-mate/core';
 import { FeatureTree } from './components/FeatureTree.js';
+import { CanopyPanel } from './components/CanopyPanel.js';
 import { PartsPanel } from './components/PartsPanel.js';
 import { SettingsDialog } from './components/SettingsDialog.js';
 import { FlatPreview } from './components/FlatPreview.js';
@@ -18,7 +18,14 @@ import { ValidationPanel } from './components/ValidationPanel.js';
 import { Viewport3D } from './components/Viewport3D.js';
 import { openTextFile, saveTextFile } from './platform/files.js';
 import { useBooleanKernel } from './state/useBuild.js';
-import { useDocument, useDocumentBuild } from './state/useDocument.js';
+import {
+  type DesignRow,
+  benchtopRow,
+  canopyRow,
+  expandRow,
+  useDocument,
+  useDocumentBuild,
+} from './state/useDocument.js';
 import {
   type Settings,
   adoptProjectSettings,
@@ -36,7 +43,6 @@ const EXPORT_PROFILES: readonly ExportProfile[] = [
 
 export function App(): JSX.Element {
   const doc = useDocument();
-  const params = doc.active.params;
   // The press brake and the bend tables belong to the shop, not to a part, so
   // they outlive any one project.
   const store = typeof localStorage === 'undefined' ? undefined : localStorage;
@@ -54,12 +60,13 @@ export function App(): JSX.Element {
   const built = useDocumentBuild(
     doc.state.rows,
     doc.state.activeUid,
+    doc.state.activePartUid,
     machine,
     settings.materials,
     foldFraction,
     kernel.ready,
   );
-  const { document, active, buildByUid, folded, error } = built;
+  const { document, expanded, active, buildByUid, folded, error } = built;
   const result = active !== null && active.ok ? active.result : null;
   const report = result?.report ?? null;
   const canExport = result !== null && report !== null && report.exportAllowed;
@@ -75,13 +82,14 @@ export function App(): JSX.Element {
         exportProfile,
         dateStamp: new Date().toISOString().slice(0, 10),
       });
-      const name = `${params.partId ?? params.name}.dxf`.replace(/\s+/g, '-');
+      const p = result.part.parameters;
+      const name = `${p.partId ?? p.name}.dxf`.replace(/\s+/g, '-');
       const written = await saveTextFile(name, dxf, [{ name: 'DXF', extensions: ['dxf'] }]);
       setStatus(written === null ? 'Export cancelled' : `Exported ${written}`);
     } catch (e) {
       setStatus(e instanceof Error ? e.message : String(e));
     }
-  }, [result, exportProfileId, params]);
+  }, [result, exportProfileId]);
 
   /**
    * One DXF per part.
@@ -122,14 +130,14 @@ export function App(): JSX.Element {
     // Every part in the document, plus the machine and any calibrated bend
     // tables, so it opens on the other computer checked against what it was
     // designed for.
-    const text = serializeProject({
-      parts: doc.state.rows.map((r) => benchtopPart(r.params)),
-      ...embedSettings(settings),
-    });
-    const name = `${params.partId ?? params.name}.smp`.replace(/\s+/g, '-');
+    const parts = doc.state.rows.flatMap((r) =>
+      expandRow(r).parts.flatMap((p) => (p.part === null ? [] : [p.part])),
+    );
+    const text = serializeProject({ parts, ...embedSettings(settings) });
+    const name = `${doc.active.params.name}.smp`.replace(/\s+/g, '-');
     const written = await saveTextFile(name, text, [{ name: 'Metal Mate project', extensions: ['smp'] }]);
     setStatus(written === null ? 'Save cancelled' : `Saved ${written}`);
-  }, [result, params, settings, doc.state.rows]);
+  }, [result, settings, doc.state.rows, doc.active]);
 
   const onOpenProject = useCallback(async () => {
     const file = await openTextFile([{ name: 'Metal Mate project', extensions: ['smp', 'json'] }]);
@@ -138,18 +146,16 @@ export function App(): JSX.Element {
       const opened = deserializeProject(file.contents);
       // Refusing beats loading what we can: saving afterwards would write the
       // document back without the parts this build could not read.
-      const unknown = opened.parts.filter((p) => p.template?.kind !== 'benchtop');
-      if (opened.parts.length === 0 || unknown.length > 0) {
+      const rows = rowsFromParts(opened.parts);
+      if (rows === null) {
         setStatus(
-          unknown.length > 0
-            ? `That project has ${unknown.length} part(s) this build cannot edit, so opening it would lose them. This build only knows benchtops.`
-            : 'That project has no parts in it.',
+          'That project has parts this build cannot edit, so opening it would lose them. This build knows benchtops and canopies.',
         );
         return;
       }
       const adopted = adoptProjectSettings(settings, opened);
       setSettings(adopted.settings);
-      doc.replaceAll(opened.parts.map((p) => p.template!.params as BenchtopParams));
+      doc.replaceAll(rows);
       setStatus([`Opened ${file.name}`, ...adopted.notes].join(' — '));
     } catch (e) {
       setStatus(e instanceof Error ? e.message : String(e));
@@ -231,20 +237,32 @@ export function App(): JSX.Element {
       <main className="layout">
         <aside className="column left">
           <PartsPanel
-            rows={doc.state.rows}
+            expanded={expanded}
             activeUid={doc.state.activeUid}
+            activePartUid={active !== null && active.ok ? doc.state.activePartUid : ''}
             document={document}
             buildByUid={buildByUid}
-            onSelect={doc.setActive}
+            onSelectRow={doc.setActiveRow}
+            onSelectPart={doc.setActivePart}
             onAdd={doc.add}
             onDuplicate={doc.duplicate}
             onRemove={doc.remove}
           />
-          <TemplatePanel
-            params={params}
-            materials={settings.materials}
-            onChange={doc.updateActive}
-          />
+          {/* One wizard per template kind. The document holds the parameters
+              either way, so switching designs swaps the form and nothing else. */}
+          {doc.active.kind === 'benchtop' ? (
+            <TemplatePanel
+              params={doc.active.params}
+              materials={settings.materials}
+              onChange={doc.updateActive}
+            />
+          ) : (
+            <CanopyPanel
+              params={doc.active.params}
+              materials={settings.materials}
+              onChange={doc.updateActive}
+            />
+          )}
         </aside>
 
         <section className="column centre">
@@ -324,4 +342,36 @@ export function App(): JSX.Element {
       </main>
     </div>
   );
+}
+
+/**
+ * Rebuild the design list from a project's parts.
+ *
+ * A canopy writes six parts that all carry the same template record, so its
+ * panels have to be gathered back into one design rather than six. Parts are
+ * grouped by template kind and parameters; anything this build does not know
+ * how to edit returns null, because loading what we can and saving afterwards
+ * would write the document back without the rest.
+ */
+function rowsFromParts(parts: readonly Part[]): DesignRow[] | null {
+  if (parts.length === 0) return null;
+  const rows: DesignRow[] = [];
+  const seen = new Map<string, true>();
+  for (const part of parts) {
+    const template = part.template;
+    if (template === undefined) return null;
+    if (template.kind === 'benchtop') {
+      rows.push(benchtopRow(template.params as BenchtopParams));
+      continue;
+    }
+    if (template.kind === 'canopy') {
+      const key = JSON.stringify(template.params);
+      if (seen.has(key)) continue;
+      seen.set(key, true);
+      rows.push(canopyRow(template.params as CanopyParams));
+      continue;
+    }
+    return null;
+  }
+  return rows;
 }

@@ -655,3 +655,52 @@ legend {
   gap: 0.4rem;
   padding-right: 0.4rem;
 }
+
+/* --- designs and their panels ---------------------------------------- */
+
+.design {
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding-bottom: 0.15rem;
+}
+
+.design.active {
+  border-color: var(--accent, #4a9);
+  background: rgb(255 255 255 / 4%);
+}
+
+.design-error {
+  padding: 0 0.5rem 0.4rem;
+  font-size: 0.85em;
+}
+
+.panel-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 0.75rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-row button {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.2rem 0.5rem;
+  background: none;
+  border: 0;
+  border-left: 2px solid var(--line);
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font-size: 0.9em;
+  /* A long panel name must not widen the column. */
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.panel-row.active button {
+  border-left-color: var(--accent, #4a9);
+  font-weight: 600;
+}
