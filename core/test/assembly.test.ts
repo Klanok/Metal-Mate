@@ -168,6 +168,29 @@ describe('placing parts', () => {
     expect(dot3(along, host.inward)).toBeCloseTo(0, 6);
   });
 
+  it('carries a part past the host edge, which is what lying on a lip is', () => {
+    // A panel landing on a lip does not hinge about the edge the lip is folded
+    // off — it sits a lip's rise beyond it. Without that, the only joint an
+    // edge mate can describe is a butt, and every real box has laps in it.
+    const { assembly, parts } = twoPanels(90);
+    const lapped: Assembly = {
+      ...assembly,
+      mates: [{ ...assembly.mates[0]!, beyondMm: 4.4 }],
+    };
+    const places = solveAssembly(lapped, parts);
+    const host = worldEdge(parts.get(partId(FLOOR))!, places.get(partId(FLOOR))!, faceId('plate'), 'back');
+    const guest = worldEdge(parts.get(partId(SIDE))!, places.get(partId(SIDE))!, faceId('plate'), 'front');
+
+    const offset = sub3(guest.p0, host.p1);
+    // 4.4 mm out past the edge, in the host's own plane, away from its metal...
+    expect(dot3(offset, host.inward)).toBeCloseTo(-4.4, 6);
+    // ...and nowhere else: not off the face, not along the seam.
+    expect(dot3(offset, host.normal)).toBeCloseTo(0, 6);
+    expect(dot3(offset, host.dir)).toBeCloseTo(0, 6);
+    // The angle is untouched by it; the guest still stands square.
+    expect(Math.abs(dot3(host.normal, guest.normal))).toBeCloseTo(0, 6);
+  });
+
   it('places a chain of parts, each onto the one before', () => {
     const floor = placed('Floor', 1200, 600);
     const side = placed('Side', 1200, 400);
@@ -249,13 +272,20 @@ describe('checks', () => {
     expect(problems(rooted, parts).join()).toMatch(/is the root/);
   });
 
-  it('refuses a negative standoff rather than burying one panel in another', () => {
-    const { assembly, parts } = twoPanels();
-    const bad: Assembly = {
+  it('takes a standoff on either side of the host face', () => {
+    // Which side of a panel a lap sits on is a fact about the joint, not a
+    // mistake: a roof lands on top of a lip, a floor tucks under one. The sign
+    // says which, measured along the host face's own outward normal.
+    const { assembly, parts } = twoPanels(0);
+    const under: Assembly = {
       ...assembly,
-      mates: [{ ...assembly.mates[0]!, standoffMm: -1 }],
+      mates: [{ ...assembly.mates[0]!, standoffMm: -1.6 }],
     };
-    expect(problems(bad, parts).join()).toMatch(/standoff cannot be negative/);
+    expect(problems(under, parts)).toEqual([]);
+    const places = solveAssembly(under, parts);
+    const host = worldEdge(parts.get(partId(FLOOR))!, places.get(partId(FLOOR))!, faceId('plate'), 'back');
+    const guest = worldEdge(parts.get(partId(SIDE))!, places.get(partId(SIDE))!, faceId('plate'), 'front');
+    expect(dot3(sub3(guest.p0, host.p1), host.normal)).toBeCloseTo(-1.6, 6);
   });
 
   it('refuses a chain that loops instead of reaching the root', () => {
