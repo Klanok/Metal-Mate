@@ -298,6 +298,34 @@ test.describe('the canopy template', () => {
     await expect(page.getByTestId('bend-table').locator('tbody tr')).toHaveCount(0);
   });
 
+  test('tapers the body and says what it then measures', async ({ page }) => {
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
+    await page.getByTestId('add-canopy').click();
+
+    const measures = page.getByTestId('canopy-measures');
+    await expect(measures).toContainText('1500 front / 1500 rear');
+
+    const field = (label: string) =>
+      page
+        .getByTestId('canopy-taper')
+        .locator('.field.number', { hasText: label })
+        .locator('input');
+    await field('Roof drop').fill('150');
+    await field('Left lean').fill('10');
+    await field('Right lean').fill('10');
+
+    // Leaning both sides in narrows the roof, and the rear is lower where the
+    // roof has fallen — the numbers typed above no longer describe the whole
+    // canopy, which is the point of reporting these.
+    await expect(measures).toContainText('Height at rear');
+    await expect(measures).toContainText('750 mm');
+    await expect(measures).not.toContainText('1500 front');
+    // Still a canopy that builds and exports.
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export');
+    await expect(page.getByTestId('viewport-3d')).toHaveAttribute('data-parts', '6');
+  });
+
   test('drops the floor panel when the canopy sits on the tray', async ({ page }) => {
     await page.goto(url, { waitUntil: 'networkidle' });
     await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });

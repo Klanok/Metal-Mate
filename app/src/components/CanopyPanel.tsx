@@ -13,9 +13,17 @@
  * clean-looking form.
  */
 
-import type { CanopyParams, Material } from '@metal-mate/core';
-import { canopyPanels } from '@metal-mate/core';
+import type { CanopyMeasures, CanopyParams, Material } from '@metal-mate/core';
+import { canopyMeasures, canopyPanels } from '@metal-mate/core';
 import { NumberField } from './NumberField.js';
+
+function measuresOf(params: CanopyParams): CanopyMeasures | null {
+  try {
+    return canopyMeasures(params);
+  } catch {
+    return null;
+  }
+}
 
 export interface CanopyPanelProps {
   readonly params: CanopyParams;
@@ -28,6 +36,10 @@ export function CanopyPanel({ params, materials, onChange }: CanopyPanelProps): 
   const material = materials.find((m) => m.id === params.materialId);
   const t = params.thicknessMm;
   const lip = params.lipMm ?? 0;
+  // A body that cannot be built has no dimensions to report; the parts list
+  // says what is wrong with it, so this just goes quiet rather than throwing
+  // out of a render.
+  const measures = measuresOf(params);
 
   return (
     <section className="panel template" data-testid="canopy-panel">
@@ -54,6 +66,56 @@ export function CanopyPanel({ params, materials, onChange }: CanopyPanelProps): 
             ? `Each wall turns ${lip} mm inward at the top and bottom, mitred at every corner. The roof lands on the top lips and the bottom lips land on the floor, so the outside height is still ${params.heightMm} mm.`
             : 'Zero lip: the panels butt edge to edge, with nothing to bolt or clamp through.'}
         </p>
+      </fieldset>
+
+      <fieldset data-testid="canopy-taper">
+        <legend>Taper</legend>
+        <p className="muted">
+          Length, width and height above are the <strong>footprint and the front</strong>. Leaning a
+          wall in or dropping the roof changes what the back and the top measure, so those are
+          reported below rather than assumed.
+        </p>
+        <NumberField
+          label="Roof drop"
+          value={params.roofDropMm ?? 0}
+          onChange={(v) => patch({ roofDropMm: v })}
+        />
+        {(
+          [
+            ['leftDeg', 'Left lean'],
+            ['rightDeg', 'Right lean'],
+            ['frontDeg', 'Front lean'],
+            ['rearDeg', 'Rear lean'],
+          ] as const
+        ).map(([field, label]) => (
+          <NumberField
+            key={field}
+            label={label}
+            unit="°"
+            step={0.5}
+            value={params.taperDeg?.[field] ?? 0}
+            onChange={(v) => patch({ taperDeg: { ...params.taperDeg, [field]: v } })}
+          />
+        ))}
+        {measures !== null && (
+          <dl className="stats" data-testid="canopy-measures">
+            <div>
+              <dt>Roof width</dt>
+              <dd>
+                {measures.roofWidthFrontMm.toFixed(0)} front / {measures.roofWidthRearMm.toFixed(0)}{' '}
+                rear
+              </dd>
+            </div>
+            <div>
+              <dt>Roof length</dt>
+              <dd>{measures.roofLengthMm.toFixed(0)} mm</dd>
+            </div>
+            <div>
+              <dt>Height at rear</dt>
+              <dd>{measures.rearHeightMm.toFixed(0)} mm</dd>
+            </div>
+          </dl>
+        )}
       </fieldset>
 
       <fieldset>

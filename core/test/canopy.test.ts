@@ -22,6 +22,7 @@ import { STAINLESS_304, findMaterial } from '../src/materials/material.js';
 import {
   type PlacedPart,
   checkAssembly,
+  placeFoldedPart,
   solveAssembly,
   worldEdge,
 } from '../src/model/assembly.js';
@@ -31,9 +32,12 @@ import {
   CANOPY_TEMPLATE_KIND,
   CanopyParameterError,
   DEFAULT_CANOPY,
+  canopyBodyFor,
   canopyDocument,
+  canopyMeasures,
   canopyPanels,
 } from '../src/templates/canopy.js';
+import { dihedralDeg } from '../src/templates/canopyBody.js';
 
 const T = 1.6;
 const L = 1800;
@@ -95,6 +99,32 @@ function placeAll(params: CanopyParams): {
     });
   }
   return { parts, places: solveAssembly(doc.assembly, parts) };
+}
+
+/**
+ * Every face of every panel, as a plane in assembly space.
+ *
+ * A seam is only closed if the two panels either side of it end up at the angle
+ * the body says, and a lip only carries a deck if it ends up parallel to it one
+ * thickness away. Both are questions about planes, and neither depends on
+ * knowing where the assembly happens to have put the whole thing.
+ */
+function assembledPlanes(params: CanopyParams): Map<string, Frame3> {
+  const { parts, places } = placeAll(params);
+  const out = new Map<string, Frame3>();
+  for (const [id, placed] of parts) {
+    const at = places.get(id)!;
+    for (const face of placeFoldedPart(placed.folded, at).faces) {
+      out.set(`${String(id)}/${String(face.faceId)}`, face.frame);
+    }
+  }
+  return out;
+}
+
+/** Angle between two planes' outward normals, degrees. */
+function betweenDeg(a: Frame3, b: Frame3): number {
+  const c = Math.max(-1, Math.min(1, dot3(a.normal, b.normal)));
+  return (Math.acos(c) * 180) / Math.PI;
 }
 
 beforeAll(async () => {
@@ -247,6 +277,89 @@ describe('the box it makes', () => {
     // ...and squarely, with no drift off the wall's plane.
     expect(dot3(offset, wall.normal)).toBeCloseTo(0, 6);
     expect(Math.abs(dot3(wall.normal, roof.normal))).toBeCloseTo(0, 6);
+  });
+
+  it('stands every wall at the angle the tapered body asks for', () => {
+    // The one test that would catch a wrong mate angle on a tapered body. Six
+    // flat panels either meet at the angles the body states, or they fold
+    // through each other and nothing else says so.
+    const params: CanopyParams = {
+      ...CANOPY,
+      roofDropMm: 200,
+      taperDeg: { leftDeg: 8, rightDeg: 5, frontDeg: 3, rearDeg: 2 },
+    };
+    const body = canopyBodyFor(params);
+    const planes = assembledPlanes(params);
+    const face = (panel: string): Frame3 => planes.get(`can-${panel}/${panel}`)!;
+
+    for (const wall of ['front', 'rear', 'left', 'right'] as const) {
+      for (const deck of ['floor', 'roof'] as const) {
+        // Both normals face out of the body, so the angle between them is the
+        // supplement of the interior angle the body carries.
+        expect(betweenDeg(face(wall), face(deck)), `${wall} to ${deck}`).toBeCloseTo(
+          180 - dihedralDeg(body, wall, deck),
+          5,
+        );
+      }
+    }
+    // Opposite walls leaning by different amounts are not parallel, and that
+    // has to survive the assembly rather than being averaged away.
+    expect(betweenDeg(face('left'), face('right'))).toBeCloseTo(180 - 8 - 5, 5);
+  });
+
+  it('lands each deck on its lips, one thickness off the metal', () => {
+    const params: CanopyParams = {
+      ...CANOPY,
+      roofDropMm: 150,
+      taperDeg: { leftDeg: 7, rightDeg: 7 },
+    };
+    const planes = assembledPlanes(params);
+    for (const wall of ['front', 'rear', 'left', 'right'] as const) {
+      for (const [edge, deck] of [
+        ['top', 'roof'],
+        ['bottom', 'floor'],
+      ] as const) {
+        const lip = planes.get(`can-${wall}/${wall}-${edge}-lip`)!;
+        const on = planes.get(`can-${deck}/${deck}`)!;
+        // A lip that carries a deck is parallel to it, and facing the same way:
+        // the lip's outer face is the one the deck lands on, so its normal
+        // points at the deck exactly as the deck's own points away from the box.
+        expect(betweenDeg(lip, on), `${wall} ${edge} lip`).toBeCloseTo(0, 4);
+        // ...and one thickness away, which is the two sheets in contact.
+        //
+        // Not exactly: bend arcs are drawn at R + K*T so that flat and folded
+        // never need reconciling, and that puts the lip T*(0.5 - K) shy of
+        // where the metal really lands — about a tenth of a millimetre here,
+        // more as the corner opens. The cut part is right; the picture is
+        // optimistic by that much, and the tolerance says so rather than
+        // pretending the model is exact.
+        const gap = Math.abs(dot3(sub3(lip.origin, on.origin), on.normal));
+        expect(gap, `${wall} ${edge} lip standoff`).toBeGreaterThan(T - 0.25);
+        expect(gap, `${wall} ${edge} lip standoff`).toBeLessThan(T + 0.25);
+      }
+    }
+  });
+
+  it('says what a tapered canopy actually measures', () => {
+    // "1800 x 1500 x 900" stops describing the whole canopy the moment it
+    // tapers: it is the footprint and the front. These are the numbers somebody
+    // would put a tape on to check the thing that turns up.
+    const square = canopyMeasures(CANOPY);
+    expect(square.roofWidthFrontMm).toBeCloseTo(W, 6);
+    expect(square.roofWidthRearMm).toBeCloseTo(W, 6);
+    expect(square.rearHeightMm).toBeCloseTo(H, 6);
+
+    const tapered = canopyMeasures({
+      ...CANOPY,
+      roofDropMm: 150,
+      taperDeg: { leftDeg: 10, rightDeg: 10 },
+    });
+    // Both sides in 10 degrees over the rise takes twice that off the roof.
+    expect(tapered.roofWidthFrontMm).toBeCloseTo(W - 2 * H * Math.tan((10 * Math.PI) / 180), 0);
+    // The rear roof is lower, so its walls have leaned in for less of a rise
+    // and it is wider than the front.
+    expect(tapered.roofWidthRearMm).toBeGreaterThan(tapered.roofWidthFrontMm);
+    expect(tapered.rearHeightMm).toBeCloseTo(H - 150, 6);
   });
 
   it('encloses the outside dimensions it was asked for', () => {
