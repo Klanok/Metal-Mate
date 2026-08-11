@@ -242,6 +242,27 @@ test.describe('the canopy template', () => {
     await expect(page.getByTestId('canopy-caveat')).toContainText('skeleton');
   });
 
+  test('keeps the size fields on screen, not below a six-panel list', async ({ page }) => {
+    // Reported from a real machine: "canopy appears but no option to change
+    // sizes". The fields existed — a canopy's six panels pushed them past the
+    // bottom of a column most people do not realise scrolls.
+    await page.setViewportSize({ width: 1400, height: 700 });
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
+    await page.getByTestId('add-canopy').click();
+
+    for (const label of ['Length', 'Width', 'Height']) {
+      const field = page
+        .getByTestId('canopy-panel')
+        .locator('.field.number', { hasText: label })
+        .first();
+      await expect(field).toBeVisible();
+      const box = await field.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.y + box!.height).toBeLessThanOrEqual(700);
+    }
+  });
+
   test('makes six panels from one design', async ({ page }) => {
     await page.goto(url, { waitUntil: 'networkidle' });
     await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });

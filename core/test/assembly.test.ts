@@ -144,6 +144,30 @@ describe('placing parts', () => {
     expect(dot3(normalize3(sub3(guest.p0, host.p1)), host.dir)).toBeCloseTo(-1, 6);
   });
 
+  it('lifts a lapped part off the face it lands on', () => {
+    // A butt joint puts the two neutral surfaces on the same line. A lap puts
+    // one sheet on the other, which is what a panel landing on a folded lip
+    // does — and without the standoff both would occupy the same space and
+    // nothing downstream would say so.
+    const { assembly, parts } = twoPanels(0);
+    const lapped: Assembly = {
+      ...assembly,
+      mates: [{ ...assembly.mates[0]!, standoffMm: 1.6 }],
+    };
+    const places = solveAssembly(lapped, parts);
+    const host = worldEdge(parts.get(partId(FLOOR))!, places.get(partId(FLOOR))!, faceId('plate'), 'back');
+    const guest = worldEdge(parts.get(partId(SIDE))!, places.get(partId(SIDE))!, faceId('plate'), 'front');
+
+    // Still coplanar and still lined up along the seam, but a thickness proud
+    // of the host's face rather than on it.
+    expect(Math.abs(dot3(host.normal, guest.normal))).toBeCloseTo(1, 6);
+    expect(dot3(sub3(guest.p0, host.p1), host.normal)).toBeCloseTo(1.6, 6);
+    // ...and no sideways drift while doing it.
+    const along = sub3(guest.p0, host.p1);
+    expect(dot3(along, host.dir)).toBeCloseTo(0, 6);
+    expect(dot3(along, host.inward)).toBeCloseTo(0, 6);
+  });
+
   it('places a chain of parts, each onto the one before', () => {
     const floor = placed('Floor', 1200, 600);
     const side = placed('Side', 1200, 400);
@@ -223,6 +247,15 @@ describe('checks', () => {
       mates: [{ ...assembly.mates[0]!, part: partId(FLOOR), to: partId(SIDE) }],
     };
     expect(problems(rooted, parts).join()).toMatch(/is the root/);
+  });
+
+  it('refuses a negative standoff rather than burying one panel in another', () => {
+    const { assembly, parts } = twoPanels();
+    const bad: Assembly = {
+      ...assembly,
+      mates: [{ ...assembly.mates[0]!, standoffMm: -1 }],
+    };
+    expect(problems(bad, parts).join()).toMatch(/standoff cannot be negative/);
   });
 
   it('refuses a chain that loops instead of reaching the root', () => {

@@ -610,6 +610,11 @@ legend {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  /* A canopy lists six panels, which was enough to push the wizard below the
+     fold of a column most people do not realise scrolls. The list gets its own
+     scroll so the parameters stay where you can reach them. */
+  max-height: 14rem;
+  overflow-y: auto;
 }
 
 .part-row {

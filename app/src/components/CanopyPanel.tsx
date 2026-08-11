@@ -32,6 +32,22 @@ export function CanopyPanel({ params, materials, onChange }: CanopyPanelProps): 
       <p className="muted">All dimensions are outside sizes, in millimetres.</p>
 
       <fieldset>
+        <legend>Box</legend>
+        <NumberField label="Length" value={params.lengthMm} onChange={(v) => patch({ lengthMm: v })} />
+        <NumberField label="Width" value={params.widthMm} onChange={(v) => patch({ widthMm: v })} />
+        <NumberField label="Height" value={params.heightMm} onChange={(v) => patch({ heightMm: v })} />
+        <label className="field toggle">
+          <input
+            type="checkbox"
+            data-testid="canopy-floor"
+            checked={params.floor !== false}
+            onChange={(e) => patch({ floor: e.target.checked })}
+          />
+          <span>Include a floor — leave it off if the canopy sits on the ute&apos;s own tray</span>
+        </label>
+      </fieldset>
+
+      <fieldset>
         <legend>Design</legend>
         <label className="field">
           <span>Name</span>
@@ -46,22 +62,6 @@ export function CanopyPanel({ params, materials, onChange }: CanopyPanelProps): 
             placeholder="CAN"
             onChange={(e) => patch({ partPrefix: e.target.value })}
           />
-        </label>
-      </fieldset>
-
-      <fieldset>
-        <legend>Box</legend>
-        <NumberField label="Length" value={params.lengthMm} onChange={(v) => patch({ lengthMm: v })} />
-        <NumberField label="Width" value={params.widthMm} onChange={(v) => patch({ widthMm: v })} />
-        <NumberField label="Height" value={params.heightMm} onChange={(v) => patch({ heightMm: v })} />
-        <label className="field toggle">
-          <input
-            type="checkbox"
-            data-testid="canopy-floor"
-            checked={params.floor !== false}
-            onChange={(e) => patch({ floor: e.target.checked })}
-          />
-          <span>Include a floor — leave it off if the canopy sits on the ute&apos;s own tray</span>
         </label>
       </fieldset>
 

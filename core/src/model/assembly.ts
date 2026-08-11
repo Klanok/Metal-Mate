@@ -58,6 +58,15 @@ export interface EdgeMate {
   readonly angleDeg: number;
   /** Slide along the shared edge, mm. */
   readonly offsetMm?: number;
+  /**
+   * Lift the placed part off the host's face by this much, mm.
+   *
+   * Zero is a butt joint: the two neutral surfaces meet on the corner line.
+   * One thickness is a **lap**: one sheet lies on the other, which is what a
+   * panel landing on a folded lip actually does. Without it the two sheets
+   * would occupy the same space and nothing downstream would say so.
+   */
+  readonly standoffMm?: number;
   readonly label?: string;
 }
 
@@ -223,6 +232,9 @@ export function checkAssembly(
         message: `the two edges are ${lengthA.toFixed(3)} and ${lengthB.toFixed(3)} mm long, so they do not meet along their whole length`,
       });
     }
+    if ((mate.standoffMm ?? 0) < 0) {
+      problems.push({ mateId: mate.id, message: 'standoff cannot be negative; flip the mate instead' });
+    }
     if (!(mate.angleDeg > -180 && mate.angleDeg < 180)) {
       problems.push({ mateId: mate.id, message: 'mate angle is a departure from flat, so it sits between -180 and 180' });
     }
@@ -335,9 +347,13 @@ function solveMate(guest: PlacedPart, mate: EdgeMate, target: WorldEdge): Frame3
 
   // 3. Slide the guest's edge start onto the target's edge end — they run
   //    opposite ways, so those are the ends that coincide — plus any offset
-  //    the mate asks for along the shared line.
+  //    the mate asks for along the shared line, and any standoff off the
+  //    host's face for a lap rather than a butt.
   const guestStart = placePoint(frame, local.p0);
-  const anchor = add3(target.p1, scale3(axis, -(mate.offsetMm ?? 0)));
+  const anchor = add3(
+    add3(target.p1, scale3(axis, -(mate.offsetMm ?? 0))),
+    scale3(target.normal, mate.standoffMm ?? 0),
+  );
   return { ...frame, origin: add3(frame.origin, sub3(anchor, guestStart)) };
 }
 
