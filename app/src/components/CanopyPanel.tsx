@@ -6,9 +6,11 @@
  * in each direction — because that is what a butt-welded corner is, so the
  * panel sizes shown here are deliberately not the numbers typed above them.
  *
- * This is the skeleton template: flat panels, square welded corners, no window
- * apertures, no tapers, no tabs. The panel says so rather than letting somebody
- * assume otherwise from a clean-looking form.
+ * The one piece of real construction is the lip: each wall turns inward at the
+ * top and bottom, and the roof and floor land on those lips. Everything else is
+ * still skeleton — square corners, no window apertures, no tapers, no tabs. The
+ * panel says so rather than letting somebody assume otherwise from a
+ * clean-looking form.
  */
 
 import type { CanopyParams, Material } from '@metal-mate/core';
@@ -25,6 +27,7 @@ export function CanopyPanel({ params, materials, onChange }: CanopyPanelProps): 
   const patch = (next: Partial<CanopyParams>): void => onChange({ ...params, ...next });
   const material = materials.find((m) => m.id === params.materialId);
   const t = params.thicknessMm;
+  const lip = params.lipMm ?? 0;
 
   return (
     <section className="panel template" data-testid="canopy-panel">
@@ -45,6 +48,12 @@ export function CanopyPanel({ params, materials, onChange }: CanopyPanelProps): 
           />
           <span>Include a floor — leave it off if the canopy sits on the ute&apos;s own tray</span>
         </label>
+        <NumberField label="Lip" value={params.lipMm ?? 0} onChange={(v) => patch({ lipMm: v })} />
+        <p className="muted" data-testid="canopy-lip-note">
+          {lip > 0
+            ? `Each wall turns ${lip} mm inward at the top and bottom, mitred at every corner. The roof lands on the top lips and the bottom lips land on the floor, so the outside height is still ${params.heightMm} mm.`
+            : 'Zero lip: the panels butt edge to edge, with nothing to bolt or clamp through.'}
+        </p>
       </fieldset>
 
       <fieldset>
@@ -112,16 +121,16 @@ export function CanopyPanel({ params, materials, onChange }: CanopyPanelProps): 
       <fieldset data-testid="canopy-panels">
         <legend>Panels</legend>
         <p className="muted">
-          {canopyPanels(params).length} panels, each cut {t} mm under the outside size: butt-welded
-          corners meet on the neutral surface, so every dimension loses half a thickness at each
-          end.
+          {canopyPanels(params).length} panels, each cut {t} mm under the outside size: the corners
+          meet on the neutral surface, so every dimension loses half a thickness at each end.
+          {lip > 0 ? ' The walls are shorter again by what their lips take.' : ''}
         </p>
       </fieldset>
 
       <p className="caveat" data-testid="canopy-caveat">
-        This is the <strong>skeleton</strong> canopy: flat panels, square welded seams, no window
-        apertures, no tapers and no locating tabs. The seams have no weld gap yet, because a corner
-        joint still applies within one part and these are between parts.
+        This is still the <strong>skeleton</strong> canopy: square corners, no window apertures, no
+        tapers and no locating tabs. The seams have no weld gap yet, because a corner joint still
+        applies within one part and these are between parts.
       </p>
     </section>
   );

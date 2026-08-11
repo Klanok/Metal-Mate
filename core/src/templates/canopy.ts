@@ -4,8 +4,16 @@
  * This is the second template pack, and it exists to answer the question the
  * architecture doc set for it: does the template layer actually hold, or does
  * the core turn out to know something about benchtops? So it is deliberately
- * the plainest canopy that is still a canopy — flat panels, square butt-welded
- * corners, no window apertures, no tapers, no tabs, no lips.
+ * the plainest canopy that is still a canopy — flat panels, square corners, no
+ * window apertures, no tapers, no tabs.
+ *
+ * The one piece of real construction it does carry is the **lip**: each wall
+ * turns inward at the top and bottom, and the roof and the floor land on those
+ * lips rather than butting edge to edge. That is how a canopy is actually put
+ * together — a butt-welded box has nothing to clamp, nothing to bolt through
+ * and no stiffness at the seam — and it is what forced the mate to be able to
+ * say "one thickness up and a lip's rise past the edge" rather than only
+ * "hinged about the edge".
  *
  * What it does exercise, and what the benchtop never did:
  *
@@ -27,7 +35,8 @@
  * twelve seams here become twelve joints and the gap stops being zero.
  */
 
-import { type GrainDirection, type Part } from '../features/types.js';
+import { type Feature, type GrainDirection, type Part } from '../features/types.js';
+import { outsideSetback } from '../materials/allowance.js';
 import { rectangleEdges, rectangleProfile } from '../features/regen.js';
 import { type FaceId, faceId, featureId, partId } from '../ids.js';
 import { type Assembly, type EdgeMate } from '../model/assembly.js';
@@ -56,6 +65,18 @@ export interface CanopyParams {
    * need one, and leaving it out makes the roof the part everything hangs off.
    */
   readonly floor?: boolean;
+  /**
+   * Outside depth of the lip folded inward around the top and bottom of each
+   * wall, mm — measured from the wall's outside surface, the way you would put
+   * a rule on it. Zero leaves the plain skeleton with nothing to fix the roof
+   * to.
+   *
+   * CONSTRUCTION: lips on the **walls**, roof and floor lapping over them. The
+   * roof lies on the top lips and the bottom lips lie on the floor, so a
+   * thickness comes out of the wall at each end and the finished outside height
+   * is still the one that was asked for.
+   */
+  readonly lipMm?: number;
   readonly grain?: GrainDirection;
 }
 
@@ -69,6 +90,7 @@ export const DEFAULT_CANOPY: CanopyParams = {
   materialId: 'al5005',
   bendRadiusMm: 2,
   floor: true,
+  lipMm: 25,
   grain: 'length',
 };
 
@@ -112,16 +134,28 @@ export function canopyDocument(params: CanopyParams): TemplateDocument {
 
   // The neutral-surface box: one thickness smaller than the outside in each
   // direction, because every panel sits half a thickness inside its own face.
+  const lip = params.lipMm ?? 0;
+  if (lip < 0) throw new CanopyParameterError('lip depth cannot be negative');
+  const setback = outsideSetback(90, params.bendRadiusMm, t);
+  if (lip > 0 && lip <= setback) {
+    throw new CanopyParameterError(
+      `a ${lip} mm lip is inside the ${setback.toFixed(2)} mm the bend itself takes, so there is no flat to fold`,
+    );
+  }
+  const withFloor = params.floor !== false;
   const length = lengthMm - t;
   const width = widthMm - t;
-  const height = heightMm - t;
+  // How far the walls run from the roof's neutral surface. With a floor that is
+  // the neutral box, floor to roof. Without one the walls stand on the tray, so
+  // their cut bottom edge is the outside bottom and only the roof's own half
+  // thickness comes off.
+  const height = withFloor ? heightMm - t : heightMm - t / 2;
   if (length <= 0 || width <= 0 || height <= 0) {
     throw new CanopyParameterError(
       `a ${lengthMm} x ${widthMm} x ${heightMm} mm canopy has nothing left once ${t} mm of thickness comes off each dimension`,
     );
   }
 
-  const withFloor = params.floor !== false;
   const panels = canopyPanels(params);
 
   const parts = panels.map((panel) => panelPart(panel, params, { length, width, height }));
@@ -130,27 +164,38 @@ export function canopyDocument(params: CanopyParams): TemplateDocument {
   // otherwise the roof, because a canopy that sits on the tray has no floor to
   // hang off and the roof is what ties the four walls together.
   const root = withFloor ? 'floor' : 'roof';
+
+  const lipRise = lipRiseFor(params);
+
   const mates: EdgeMate[] = [];
   for (const wall of ['front', 'rear', 'left', 'right'] as const) {
     mates.push({
       id: `${root}-${wall}`,
       part: key(params, wall),
-      // Each wall stands on its own bottom edge...
-      edge: { faceId: panelFaceId(wall), edgeName: 'bottom' },
+      // With a floor, each wall stands on its own bottom edge; without one it
+      // hangs from its top edge off the roof, which is the panel that is there.
+      edge: { faceId: panelFaceId(wall), edgeName: withFloor ? 'bottom' : 'top' },
       to: key(params, root),
       // ...along the matching edge of the panel it hangs off. The floor and
       // roof carry the plain rectangle edge names, where the rear of the
       // canopy is the `back` edge.
       toEdge: { faceId: panelFaceId(root), edgeName: DECK_EDGE[wall] },
       angleDeg: 90,
+      // The lip lies on the deck, so the wall's plate starts a lip's rise into
+      // the box — the far side of the deck from its own outward normal, which
+      // faces out of the box.
+      standoffMm: -lipRise,
       label: `${PANEL_LABELS[wall]} onto ${PANEL_LABELS[root]}`,
     });
   }
   if (withFloor) {
-    // The roof lands on one wall's top edge. It touches all four, but a
+    // The roof lands on one wall's top lip. It sits on all four, but a
     // placement tree allows exactly one relationship per part — the other three
     // contacts are seams, not placements, the same way a closed corner is not a
     // second bend.
+    //
+    // `beyondMm` is the lap: the roof does not hinge about the wall's top edge,
+    // it lies a lip's rise past it, on top of the lip folded off that edge.
     mates.push({
       id: 'left-roof',
       part: key(params, 'roof'),
@@ -158,6 +203,7 @@ export function canopyDocument(params: CanopyParams): TemplateDocument {
       to: key(params, 'left'),
       toEdge: { faceId: panelFaceId('left'), edgeName: 'top' },
       angleDeg: 90,
+      beyondMm: lipRise,
       label: 'Roof onto Left side',
     });
   }
@@ -181,7 +227,16 @@ interface Box {
  * readable rather than a puzzle of rotations.
  */
 function panelPart(panel: CanopyPanel, params: CanopyParams, box: Box): Part {
-  const { length, width, height } = box;
+  const { length, width } = box;
+  // A wall spans the box top to bottom, less what each lip takes. The mates
+  // hand that same rise back, so the two always agree: whatever comes off the
+  // plate here is exactly how far the lip carries the panel that lands on it.
+  const height = box.height - lipEdgesFor(panel, params).length * lipRiseFor(params);
+  if (height <= 0) {
+    throw new CanopyParameterError(
+      `a ${params.heightMm} mm canopy has no wall left once its lips take their setbacks`,
+    );
+  }
   const plan: Record<CanopyPanel, { w: number; h: number; names?: EdgeNames }> = {
     // Floor and roof are seen from above: x across the width, y along the
     // length, so the default front/right/back/left already name the sides.
@@ -194,6 +249,9 @@ function panelPart(panel: CanopyPanel, params: CanopyParams, box: Box): Part {
     right: { w: length, h: height, names: WALL_EDGES },
   };
   const { w, h, names } = plan[panel];
+
+  const lip = params.lipMm ?? 0;
+  const lipEdges = lipEdgesFor(panel, params);
 
   return {
     parameters: {
@@ -212,6 +270,25 @@ function panelPart(panel: CanopyPanel, params: CanopyParams, box: Box): Part {
         edges: names === undefined ? rectangleEdges(w, h) : rectangleEdges(w, h, names),
         label: PANEL_LABELS[panel],
       },
+      ...lipEdges.map((edge): Feature => ({
+        kind: 'edge-flange',
+        id: featureId(lipFeatureId(panel, edge)),
+        edge: { faceId: panelFaceId(panel), edgeName: edge },
+        lengthMm: lip - outsideSetback(90, params.bendRadiusMm, params.thicknessMm),
+        angleDeg: 90,
+        // Both lips turn the same way, toward the inside of the box. The fold
+        // direction is already measured against each edge's own direction, and
+        // the two edges run opposite ways round the wall's boundary, so the
+        // same value on both is the same physical side. Using different values
+        // sends one lip in and one out.
+        direction: 'down',
+        insideRadiusMm: params.bendRadiusMm,
+        // Two walls' lips meet at each vertical corner as horizontal strips at
+        // a right angle — the picture-frame case — so each end is mitred.
+        mitreStartDeg: 45,
+        mitreEndDeg: 45,
+        label: `${PANEL_LABELS[panel]} ${edge} lip`,
+      })),
     ],
     template: { kind: CANOPY_TEMPLATE_KIND, params },
   };
@@ -237,6 +314,39 @@ const WALL_EDGES: EdgeNames = { front: 'bottom', right: 'right', back: 'top', le
 type EdgeNames = { front: string; right: string; back: string; left: string };
 
 /** Each panel part has exactly one face, named for the panel. */
+/**
+ * Which of a panel's edges carry a lip. Walls only, top always, bottom when
+ * there is a floor to land on it.
+ */
+function lipEdgesFor(panel: CanopyPanel, params: CanopyParams): ('top' | 'bottom')[] {
+  const isWall = panel !== 'floor' && panel !== 'roof';
+  if (!isWall || (params.lipMm ?? 0) <= 0) return [];
+  return params.floor === false ? ['top'] : ['top', 'bottom'];
+}
+
+/**
+ * How far a lip carries the panel that lands on it past the wall's own plate
+ * edge, mm.
+ *
+ * Half a thickness to reach that panel's neutral surface from the face of the
+ * lip it lies on, plus the setback the bend takes out of the wall. The same
+ * number comes off the wall's plate and goes into the mate, so the box closes
+ * on its outside dimensions however deep the lip is.
+ *
+ * Zero without lips, which leaves the plain butt-jointed skeleton.
+ */
+function lipRiseFor(params: CanopyParams): number {
+  if ((params.lipMm ?? 0) <= 0) return 0;
+  return (
+    params.thicknessMm / 2 + outsideSetback(90, params.bendRadiusMm, params.thicknessMm)
+  );
+}
+
+/** A wall's lip along one of its edges. */
+function lipFeatureId(panel: CanopyPanel, edge: 'top' | 'bottom'): string {
+  return `${panel}-${edge}-lip`;
+}
+
 function panelFaceId(panel: CanopyPanel): FaceId {
   return faceId(panel);
 }

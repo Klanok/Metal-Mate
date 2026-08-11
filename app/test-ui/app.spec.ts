@@ -278,6 +278,26 @@ test.describe('the canopy template', () => {
     await expect(page.getByTestId('cut-list-totals')).toContainText('7');
   });
 
+  test('folds a lip on every wall, and takes it off again at zero', async ({ page }) => {
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
+    await page.getByTestId('add-canopy').click();
+
+    // A wall carries two lips, so two bend lines; the roof stays flat.
+    const design = page.getByTestId('parts-panel').locator('.design').last();
+    await design.locator('.panel-row', { hasText: 'CAN-FRONT' }).locator('button').first().click();
+    await expect(page.getByTestId('bend-table').locator('tbody tr')).toHaveCount(2);
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export');
+
+    const lip = page
+      .getByTestId('canopy-panel')
+      .locator('.field.number', { hasText: 'Lip' })
+      .locator('input');
+    await lip.fill('0');
+    await expect(page.getByTestId('canopy-lip-note')).toContainText('butt edge to edge');
+    await expect(page.getByTestId('bend-table').locator('tbody tr')).toHaveCount(0);
+  });
+
   test('drops the floor panel when the canopy sits on the tray', async ({ page }) => {
     await page.goto(url, { waitUntil: 'networkidle' });
     await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });

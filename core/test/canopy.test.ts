@@ -49,6 +49,36 @@ const CANOPY: CanopyParams = {
   materialId: 'ss304',
 };
 
+const LIP = DEFAULT_CANOPY.lipMm!;
+/** What the bend itself takes out of the outside corner, at 90 degrees. */
+const SETBACK = DEFAULT_CANOPY.bendRadiusMm + T;
+/** ...plus the half thickness that lifts the deck's neutral surface clear. */
+const LIP_RISE = T / 2 + SETBACK;
+
+/** The four walls and the box dimension each runs along. */
+const WALLS = [
+  ['CAN-FRONT', W - T],
+  ['CAN-REAR', W - T],
+  ['CAN-LEFT', L - T],
+  ['CAN-RIGHT', L - T],
+] as const;
+
+/** The flat plate one panel is cut from, before any lip is folded off it. */
+function plateSize(params: CanopyParams, partIdText: string): [number, number] {
+  const part = canopyDocument(params).parts.find((p) => p.parameters.partId === partIdText)!;
+  const { graph } = regenerate(part);
+  const verts = graph.faces.get(faceId(partIdText.slice('CAN-'.length).toLowerCase()))!.profile
+    .outer.verts;
+  const xs = verts.map((v) => v.x);
+  const ys = verts.map((v) => v.y);
+  return [Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)];
+}
+
+function expectSize(got: readonly [number, number], want: readonly [number, number]): void {
+  expect(got[0]).toBeCloseTo(want[0], 9);
+  expect(got[1]).toBeCloseTo(want[1], 9);
+}
+
 /** Solve the assembly for a set of parameters. */
 function placeAll(params: CanopyParams): {
   parts: Map<ReturnType<typeof partId>, PlacedPart>;
@@ -95,23 +125,45 @@ describe('the parts it makes', () => {
   });
 
   it('cuts every panel to the neutral-surface box, not the outside box', () => {
+    // Corners meet on the neutral surface, so each plan dimension loses exactly
+    // one thickness — half from the panel at each end.
+    expectSize(plateSize(CANOPY, 'CAN-FLOOR'), [W - T, L - T]);
+    expectSize(plateSize(CANOPY, 'CAN-ROOF'), [W - T, L - T]);
+    // A wall with no lips spans the box the same way.
+    const plain = { ...CANOPY, lipMm: 0 };
+    for (const [id, across] of WALLS) {
+      expectSize(plateSize(plain, id), [across, H - T]);
+    }
+  });
+
+  it('takes a lip rise out of the wall at each end that carries one', () => {
+    // What the lips take off the wall is exactly what the mates hand back, so
+    // the box still closes on the outside height it was asked for — that is
+    // checked below. Here: the plate really is shorter, by the setback the bend
+    // takes plus the half thickness that lifts the deck clear of the lip.
+    for (const [id, across] of WALLS) {
+      expectSize(plateSize(CANOPY, id), [across, H - T - 2 * LIP_RISE]);
+      // No floor means no bottom lip, and a wall that runs to the tray: only
+      // the roof's own half thickness comes off the top.
+      expectSize(plateSize({ ...CANOPY, floor: false }, id), [across, H - T / 2 - LIP_RISE]);
+    }
+  });
+
+  it('folds each lip inward and mitres both its ends', () => {
     const doc = canopyDocument(CANOPY);
-    const size = (partIdText: string): [number, number] => {
-      const part = doc.parts.find((p) => p.parameters.partId === partIdText)!;
-      const { graph } = regenerate(part);
-      const verts = [...graph.faces.values()][0]!.profile.outer.verts;
-      const xs = verts.map((v) => v.x);
-      const ys = verts.map((v) => v.y);
-      return [Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)];
-    };
-    // Butt-welded corners meet on the neutral surface, so each dimension loses
-    // exactly one thickness — half from the panel at each end.
-    expect(size('CAN-FLOOR')).toEqual([W - T, L - T]);
-    expect(size('CAN-ROOF')).toEqual([W - T, L - T]);
-    expect(size('CAN-FRONT')).toEqual([W - T, H - T]);
-    expect(size('CAN-REAR')).toEqual([W - T, H - T]);
-    expect(size('CAN-LEFT')).toEqual([L - T, H - T]);
-    expect(size('CAN-RIGHT')).toEqual([L - T, H - T]);
+    const left = doc.parts.find((p) => p.parameters.partId === 'CAN-LEFT')!;
+    const lips = left.features.filter((f) => f.kind === 'edge-flange');
+    expect(lips.map((f) => f.id)).toEqual([faceId('left-top-lip'), faceId('left-bottom-lip')]);
+    for (const lip of lips) {
+      if (lip.kind !== 'edge-flange') throw new Error('not a flange');
+      // Outside depth, so the bend's own setback comes out of the flat.
+      expect(lip.lengthMm).toBeCloseTo(LIP - SETBACK, 9);
+      expect(lip.angleDeg).toBe(90);
+      // Two walls' lips meet at each vertical corner at a right angle, so each
+      // end is raked back 45 degrees and the picture frame closes.
+      expect(lip.mitreStartDeg).toBe(45);
+      expect(lip.mitreEndDeg).toBe(45);
+    }
   });
 
   it('records the template on every panel, so the wizard stays live', () => {
@@ -174,6 +226,29 @@ describe('the box it makes', () => {
     expect(rise).toBeCloseTo(H - T, 6);
   });
 
+  it('lays the roof on the lip rather than butting it against the wall', () => {
+    const { parts, places } = placeAll(CANOPY);
+    const wall = worldEdge(
+      parts.get(partId('CAN-LEFT'))!,
+      places.get(partId('CAN-LEFT'))!,
+      faceId('left'),
+      'top',
+    );
+    const roof = worldEdge(
+      parts.get(partId('CAN-ROOF'))!,
+      places.get(partId('CAN-ROOF'))!,
+      faceId('roof'),
+      'left',
+    );
+    const offset = sub3(roof.p0, wall.p1);
+    // Up the wall, past the edge the lip is folded off, by exactly the rise the
+    // wall's own plate gave up for it. A butt joint would put this at zero.
+    expect(dot3(offset, wall.inward)).toBeCloseTo(-LIP_RISE, 6);
+    // ...and squarely, with no drift off the wall's plane.
+    expect(dot3(offset, wall.normal)).toBeCloseTo(0, 6);
+    expect(Math.abs(dot3(wall.normal, roof.normal))).toBeCloseTo(0, 6);
+  });
+
   it('encloses the outside dimensions it was asked for', () => {
     // Every panel corner, in assembly space. Six panels mated at right angles
     // either bound a box of the size asked for or they fold through each other,
@@ -219,8 +294,12 @@ describe('through the rest of the pipeline', () => {
   });
 
   it('reports a mass that matches the metal in six flat panels', () => {
-    const doc = canopyDocument(CANOPY);
-    const built = buildDocument(doc.parts, {
+    // Arithmetic worth checking has to be arithmetic done independently, so
+    // this is the lipless canopy: six rectangles and nothing else. The lipped
+    // one is checked against it below rather than against a second derivation
+    // of the same bend allowances.
+    const plain = { ...CANOPY, lipMm: 0 };
+    const built = buildDocument(canopyDocument(plain).parts, {
       machine: { ...GENERIC_2500_40T, bedLengthMm: 3000 },
     });
     const area =
@@ -229,16 +308,33 @@ describe('through the rest of the pipeline', () => {
     expect(built.totalMassKg).toBeCloseTo(expected, 6);
   });
 
-  it('blocks export when a panel is longer than the brake bed', () => {
-    // The 1800 mm floor will not fit a 1500 mm bed, and that has to stop the
-    // whole document rather than just that panel.
+  it('costs metal for the lips, and bends to put them there', () => {
+    const machine = { ...GENERIC_2500_40T, bedLengthMm: 3000 };
+    const plain = buildDocument(canopyDocument({ ...CANOPY, lipMm: 0 }).parts, { machine });
+    const lipped = buildDocument(canopyDocument(CANOPY).parts, { machine });
+    expect(lipped.totalMassKg).toBeGreaterThan(plain.totalMassKg);
+    // Four walls, two lips each, and the decks stay flat.
+    const bends = lipped.parts.map((p) => (p.ok ? p.result.flat.bendLines.length : -1));
+    expect(bends).toEqual([0, 2, 2, 2, 2, 0]);
+  });
+
+  it('blocks export when a lip is longer than the brake bed', () => {
+    // The side walls' lips run the full 1800 mm length and will not go in a
+    // 1500 mm brake. One panel that cannot be made stops the whole document —
+    // there is no use cutting five of the six.
     const doc = canopyDocument(CANOPY);
     const built = buildDocument(doc.parts, {
       machine: { ...GENERIC_2500_40T, bedLengthMm: 1500 },
     });
-    expect(built.exportAllowed).toBe(true);
-    // ...except a flat panel has no bends, so the bed length never applies.
-    // That is worth knowing: a skeleton canopy asks nothing of the press brake.
-    expect(built.parts.every((p) => p.ok && p.result.flat.bendLines.length === 0)).toBe(true);
+    expect(built.exportAllowed).toBe(false);
+    // The floor and roof are still flat, so it is the walls that are stopping
+    // it, and only the ones long enough to.
+    const blocked = built.parts.filter((p) => !p.ok || !p.result.report.exportAllowed);
+    expect(blocked.map((p) => p.part.parameters.partId)).toEqual(['CAN-LEFT', 'CAN-RIGHT']);
+    // ...and with a bed that fits them, the same canopy goes out.
+    const wide = buildDocument(doc.parts, {
+      machine: { ...GENERIC_2500_40T, bedLengthMm: 3000 },
+    });
+    expect(wide.exportAllowed).toBe(true);
   });
 });

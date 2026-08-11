@@ -59,14 +59,32 @@ export interface EdgeMate {
   /** Slide along the shared edge, mm. */
   readonly offsetMm?: number;
   /**
-   * Lift the placed part off the host's face by this much, mm.
+   * Lift the placed part off the host's face by this much, mm — signed, along
+   * the host face's outward normal.
    *
    * Zero is a butt joint: the two neutral surfaces meet on the corner line.
    * One thickness is a **lap**: one sheet lies on the other, which is what a
    * panel landing on a folded lip actually does. Without it the two sheets
-   * would occupy the same space and nothing downstream would say so.
+   * would occupy the same space and nothing downstream would say so. Negative
+   * puts the placed part behind the host's face, which is the same lap seen
+   * from the other side.
    */
   readonly standoffMm?: number;
+  /**
+   * Move the placed part past the host's edge by this much, mm — signed, along
+   * the host face's own plane, away from its material.
+   *
+   * Zero is the plain case, the one a bend does: the two parts hinge about the
+   * shared line. Positive carries the placed part beyond the edge, which is
+   * what a panel lying on a lip does — the lip is folded off that edge, so the
+   * panel it carries sits a lip's rise past it. Negative brings the placed part
+   * back over the host's own material.
+   *
+   * Together with `standoffMm` this fixes the placed edge anywhere in the plane
+   * across the seam, and with `offsetMm` and `angleDeg` that is the whole rigid
+   * placement. Nothing here is solved for: every number is stated.
+   */
+  readonly beyondMm?: number;
   readonly label?: string;
 }
 
@@ -254,8 +272,8 @@ export function checkAssembly(
         message: `the two edges are ${lengthA.toFixed(3)} and ${lengthB.toFixed(3)} mm long, so they do not meet along their whole length`,
       });
     }
-    if ((mate.standoffMm ?? 0) < 0) {
-      problems.push({ mateId: mate.id, message: 'standoff cannot be negative; flip the mate instead' });
+    if (!Number.isFinite(mate.standoffMm ?? 0) || !Number.isFinite(mate.beyondMm ?? 0)) {
+      problems.push({ mateId: mate.id, message: 'standoff and beyond must be finite numbers of mm' });
     }
     if (!(mate.angleDeg > -180 && mate.angleDeg < 180)) {
       problems.push({ mateId: mate.id, message: 'mate angle is a departure from flat, so it sits between -180 and 180' });
@@ -368,13 +386,19 @@ function solveMate(guest: PlacedPart, mate: EdgeMate, target: WorldEdge): Frame3
   if (theta !== 0) frame = rotateFrame(frame, axis, theta);
 
   // 3. Slide the guest's edge start onto the target's edge end — they run
-  //    opposite ways, so those are the ends that coincide — plus any offset
-  //    the mate asks for along the shared line, and any standoff off the
-  //    host's face for a lap rather than a butt.
+  //    opposite ways, so those are the ends that coincide — plus the three
+  //    offsets, each along one axis of the target edge's own frame: along the
+  //    seam, off the host's face, and past the host's edge.
   const guestStart = placePoint(frame, local.p0);
   const anchor = add3(
-    add3(target.p1, scale3(axis, -(mate.offsetMm ?? 0))),
-    scale3(target.normal, mate.standoffMm ?? 0),
+    target.p1,
+    add3(
+      scale3(axis, -(mate.offsetMm ?? 0)),
+      add3(
+        scale3(target.normal, mate.standoffMm ?? 0),
+        scale3(target.inward, -(mate.beyondMm ?? 0)),
+      ),
+    ),
   );
   return { ...frame, origin: add3(frame.origin, sub3(anchor, guestStart)) };
 }
