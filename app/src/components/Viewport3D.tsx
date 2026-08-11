@@ -9,12 +9,16 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import type { FaceBendGraph, FoldedPart } from '@metal-mate/core';
 import { bendPieces, facePieces, partExtent } from '../render/solid.js';
+import type { SceneItem } from '../state/useDocument.js';
 
 export interface Viewport3DProps {
-  readonly graph: FaceBendGraph | null;
-  readonly folded: FoldedPart | null;
+  /**
+   * Everything to draw, already in assembly space. One entry is a single part;
+   * several are a design's panels sitting where they belong, which is the only
+   * way to see whether a canopy actually closes up.
+   */
+  readonly scene: readonly SceneItem[];
   readonly showEdges: boolean;
 }
 
@@ -22,7 +26,7 @@ const FACE_COLOUR = 0xc9d3da;
 const BEND_UP_COLOUR = 0x74b06a;
 const BEND_DOWN_COLOUR = 0xc4685f;
 
-export function Viewport3D({ graph, folded, showEdges }: Viewport3DProps): JSX.Element {
+export function Viewport3D({ scene: items, showEdges }: Viewport3DProps): JSX.Element {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<{
     renderer: THREE.WebGLRenderer;
@@ -122,9 +126,9 @@ export function Viewport3D({ graph, folded, showEdges }: Viewport3DProps): JSX.E
     const ctx = sceneRef.current;
     if (ctx === null) return;
     clearGroup(ctx.partGroup);
-    if (graph === null || folded === null) return;
+    if (items.length === 0) return;
 
-    for (const piece of facePieces(graph, folded)) {
+    for (const piece of items.flatMap((i) => facePieces(i.graph, i.folded))) {
       const shape = new THREE.Shape(piece.outer.map((p) => new THREE.Vector2(p.x, p.y)));
       shape.holes = piece.holes.map(
         (hole) => new THREE.Path(hole.map((p) => new THREE.Vector2(p.x, p.y))),
@@ -150,7 +154,7 @@ export function Viewport3D({ graph, folded, showEdges }: Viewport3DProps): JSX.E
       if (showEdges) ctx.partGroup.add(edgesOf(geometry));
     }
 
-    for (const piece of bendPieces(folded)) {
+    for (const piece of items.flatMap((i) => bendPieces(i.folded))) {
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', new THREE.BufferAttribute(piece.positions, 3));
       geometry.setIndex(new THREE.BufferAttribute(piece.indices, 1));
@@ -168,7 +172,9 @@ export function Viewport3D({ graph, folded, showEdges }: Viewport3DProps): JSX.E
       );
     }
 
-    const extent = partExtent(graph, folded);
+    // Frame everything on screen, not just the first panel.
+    const extents = items.map((i) => partExtent(i.graph, i.folded));
+    const extent = mergeExtents(extents);
     const changedALot =
       framedRadius.current === 0 ||
       extent.radius > framedRadius.current * 1.6 ||
@@ -187,9 +193,14 @@ export function Viewport3D({ graph, folded, showEdges }: Viewport3DProps): JSX.E
       ctx.camera.updateProjectionMatrix();
       ctx.controls.update();
     }
-  }, [graph, folded, showEdges]);
+  }, [items, showEdges]);
 
-  return <div className="viewport" ref={mountRef} data-testid="viewport-3d" />;
+  // How many parts are being drawn. A canopy shows six panels in place; one
+  // panel on its own shows one. There is no other way for a test to tell those
+  // apart through a canvas.
+  return (
+    <div className="viewport" ref={mountRef} data-testid="viewport-3d" data-parts={items.length} />
+  );
 }
 
 function edgesOf(geometry: THREE.BufferGeometry): THREE.LineSegments {
@@ -209,4 +220,26 @@ function clearGroup(group: THREE.Group): void {
       else material.dispose();
     }
   }
+}
+
+/** One bounding sphere covering every part on screen. */
+function mergeExtents(
+  extents: readonly { centre: { x: number; y: number; z: number }; radius: number }[],
+): { centre: { x: number; y: number; z: number }; radius: number } {
+  if (extents.length === 0) return { centre: { x: 0, y: 0, z: 0 }, radius: 100 };
+  if (extents.length === 1) return extents[0]!;
+  // Bound the boxes rather than the spheres: a sphere around each panel of a
+  // canopy overstates it badly, and the camera would sit miles away.
+  let min = { x: Infinity, y: Infinity, z: Infinity };
+  let max = { x: -Infinity, y: -Infinity, z: -Infinity };
+  for (const e of extents) {
+    for (const k of ['x', 'y', 'z'] as const) {
+      min[k] = Math.min(min[k], e.centre[k] - e.radius);
+      max[k] = Math.max(max[k], e.centre[k] + e.radius);
+    }
+  }
+  return {
+    centre: { x: (min.x + max.x) / 2, y: (min.y + max.y) / 2, z: (min.z + max.z) / 2 },
+    radius: Math.max(1, Math.hypot(max.x - min.x, max.y - min.y, max.z - min.z) / 2),
+  };
 }

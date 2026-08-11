@@ -122,6 +122,28 @@ export function placeFrame(outer: Frame3, inner: Frame3): Frame3 {
   };
 }
 
+/**
+ * Carry a whole folded part into assembly space.
+ *
+ * Everything in a `FoldedPart` is already world geometry in that part's own
+ * space, so placing it is one rigid transform applied to every frame, axis and
+ * tangent. Doing it here rather than in the renderer means the assembly view
+ * and any geometric check see exactly the same numbers.
+ */
+export function placeFoldedPart(folded: FoldedPart, at: Frame3): FoldedPart {
+  return {
+    ...folded,
+    faces: folded.faces.map((f) => ({ ...f, frame: placeFrame(at, f.frame) })),
+    bends: folded.bends.map((b) => ({
+      ...b,
+      axisOrigin: placePoint(at, b.axisOrigin),
+      axisDir: placeDirection(at, b.axisDir),
+      tangentA: [placePoint(at, b.tangentA[0]), placePoint(at, b.tangentA[1])] as const,
+      tangentB: [placePoint(at, b.tangentB[0]), placePoint(at, b.tangentB[1])] as const,
+    })),
+  };
+}
+
 /** What a part looks like once it is placed: its folded form and where it sits. */
 export interface PlacedPart {
   readonly partId: PartId;

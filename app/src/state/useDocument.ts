@@ -14,14 +14,17 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import type {
+  Assembly,
   BenchtopParams,
   CanopyParams,
   DocumentBuild,
+  FaceBendGraph,
   FoldedPart,
   MachineProfile,
   Material,
   Part,
   PartBuild,
+  PlacedPart,
 } from '@metal-mate/core';
 import {
   DEFAULT_BENCHTOP,
@@ -30,6 +33,9 @@ import {
   buildDocument,
   canopyDocument,
   fold,
+  keyOf,
+  placeFoldedPart,
+  solveAssembly,
 } from '@metal-mate/core';
 
 export type TemplateKind = 'benchtop' | 'canopy';
@@ -78,6 +84,8 @@ export interface ExpandedPart {
 export interface ExpandedRow {
   readonly row: DesignRow;
   readonly parts: readonly ExpandedPart[];
+  /** How this design's parts sit together, when it makes more than one. */
+  readonly assembly: Assembly | null;
   /** Why this design will not build, if it will not. */
   readonly error: string | null;
 }
@@ -91,12 +99,15 @@ export interface ExpandedRow {
  */
 export function expandRow(row: DesignRow): ExpandedRow {
   try {
-    const parts =
-      row.kind === 'benchtop' ? [benchtopPart(row.params)] : [...canopyDocument(row.params).parts];
+    const made =
+      row.kind === 'benchtop'
+        ? { parts: [benchtopPart(row.params)], assembly: null }
+        : canopyDocument(row.params);
     return {
       row,
       error: null,
-      parts: parts.map((part, i) => ({
+      assembly: made.assembly ?? null,
+      parts: made.parts.map((part, i) => ({
         partUid: `${row.uid}#${i}`,
         rowUid: row.uid,
         name: part.parameters.name,
@@ -106,6 +117,7 @@ export function expandRow(row: DesignRow): ExpandedRow {
   } catch (e) {
     return {
       row,
+      assembly: null,
       error: e instanceof Error ? e.message : String(e),
       parts: [],
     };
@@ -238,8 +250,12 @@ export interface DocumentBuildState {
   readonly active: PartBuild | null;
   /** Each part's build, by its part uid. */
   readonly buildByUid: ReadonlyMap<string, PartBuild>;
-  /** Folded geometry for the part on screen only; the rest never need it. */
-  readonly folded: FoldedPart | undefined;
+  /**
+   * What to draw in 3D: one entry per panel when a whole design is selected,
+   * and just the one when a single panel is. Every entry is already in
+   * assembly space, so the viewport draws them without knowing about mates.
+   */
+  readonly scene: readonly SceneItem[];
   /** Why the active design will not build, if it will not. */
   readonly error: string | null;
   readonly ready: boolean;
@@ -293,13 +309,65 @@ export function useDocumentBuild(
 
   const error = expanded.find((e) => e.row.uid === activeUid)?.error ?? null;
 
-  const folded = useMemo(() => {
-    if (active === null || !active.ok) return undefined;
-    return fold(active.result.graph, {
-      material: active.result.material,
-      fraction: foldFraction,
-    });
-  }, [active, foldFraction]);
+  const activeRow = expanded.find((e) => e.row.uid === activeUid) ?? null;
+  // A whole design shows every panel where it sits; one panel shows just that
+  // panel, on its own, which is what you want when checking a flat pattern.
+  const showWholeDesign = activePartUid === '' && activeRow !== null && activeRow.parts.length > 1;
 
-  return { document, expanded, active, buildByUid, folded, error, ready };
+  const scene = useMemo(
+    () =>
+      showWholeDesign
+        ? assembledScene(activeRow, buildByUid, foldFraction)
+        : singleScene(active, foldFraction),
+    [showWholeDesign, activeRow, buildByUid, active, foldFraction],
+  );
+
+  return { document, expanded, active, buildByUid, scene, error, ready };
+}
+
+/** One drawable part: its graph, and its folded geometry in assembly space. */
+export interface SceneItem {
+  readonly graph: FaceBendGraph;
+  readonly folded: FoldedPart;
+}
+
+function singleScene(active: PartBuild | null, fraction: number): SceneItem[] {
+  if (active === null || !active.ok) return [];
+  const { graph, material } = active.result;
+  return [{ graph, folded: fold(graph, { material, fraction }) }];
+}
+
+/**
+ * Every panel of a design, placed where the assembly puts it.
+ *
+ * A design that cannot be placed — a mate naming an edge that is not there —
+ * falls back to nothing rather than drawing the panels stacked on top of each
+ * other at the origin, which would look like a part rather than a fault.
+ */
+function assembledScene(
+  row: ExpandedRow,
+  buildByUid: ReadonlyMap<string, PartBuild>,
+  fraction: number,
+): SceneItem[] {
+  if (row.assembly === null) return [];
+  const placedParts = new Map<ReturnType<typeof keyOf>, PlacedPart>();
+  const items: { key: ReturnType<typeof keyOf>; graph: FaceBendGraph; folded: FoldedPart }[] = [];
+  for (const p of row.parts) {
+    const build = buildByUid.get(p.partUid);
+    if (build === undefined || !build.ok) return [];
+    const { graph, material } = build.result;
+    const folded = fold(graph, { material, fraction });
+    const key = keyOf(build.part);
+    placedParts.set(key, { partId: key, graph, folded });
+    items.push({ key, graph, folded });
+  }
+  try {
+    const places = solveAssembly(row.assembly, placedParts);
+    return items.map((i) => ({
+      graph: i.graph,
+      folded: placeFoldedPart(i.folded, places.get(i.key)!),
+    }));
+  } catch {
+    return [];
+  }
 }
