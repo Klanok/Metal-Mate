@@ -74,7 +74,14 @@ export type CornerStyle = 'mitre' | 'relief';
 
 export type CornerName = 'front-left' | 'front-right' | 'back-right' | 'back-left';
 
-export type CornerTreatment = 'mitre' | 'relief' | 'none';
+/**
+ * What this template decided to do at one corner.
+ *
+ * Named apart from `CornerTreatment` in `model/corner.ts`, which is the core's
+ * weld-gap-or-tab-slot record. This is the template's decision; that is the
+ * geometry it turns into.
+ */
+export type BenchtopCornerTreatment = 'mitre' | 'relief' | 'none';
 
 /**
  * The four corners, each named for the two sides that meet there.
@@ -264,8 +271,8 @@ export function foldDirection(edge: EdgeParams): 'up' | 'down' {
 export function cornerTreatments(
   edges: BenchtopEdges,
   style: CornerStyle = 'mitre',
-): Readonly<Record<CornerName, CornerTreatment>> {
-  const out = {} as Record<CornerName, CornerTreatment>;
+): Readonly<Record<CornerName, BenchtopCornerTreatment>> {
+  const out = {} as Record<CornerName, BenchtopCornerTreatment>;
   for (const { name, startSide, endSide } of CORNERS) {
     const a = edges[startSide];
     const b = edges[endSide];
@@ -387,7 +394,7 @@ interface TopFace {
 function topFace(
   width: number,
   depth: number,
-  corners: Readonly<Record<CornerName, CornerTreatment>>,
+  corners: Readonly<Record<CornerName, BenchtopCornerTreatment>>,
   relief: number,
 ): TopFace {
   const notch = (corner: CornerName): number => (corners[corner] === 'relief' ? relief : 0);
@@ -455,7 +462,7 @@ function edgeFeatures(
   edge: EdgeParams,
   params: BenchtopParams,
   setback: number,
-  at: { start: CornerTreatment; end: CornerTreatment },
+  at: { start: BenchtopCornerTreatment; end: BenchtopCornerTreatment },
   gap: number,
 ): EdgeFlangeFeature[] {
   if (!hasFlange(edge)) return [];

@@ -154,12 +154,12 @@ test.describe('documents with several parts', () => {
     await page.goto(url, { waitUntil: 'networkidle' });
     await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
     const parts = page.getByTestId('parts-panel');
-    await expect(parts.locator('.part-row')).toHaveCount(1);
+    await expect(parts.locator('.design')).toHaveCount(1);
     // With one part there is nothing to total up.
     await expect(page.getByTestId('cut-list-totals')).toHaveCount(0);
 
-    await page.getByTestId('add-part').click();
-    await expect(parts.locator('.part-row')).toHaveCount(2);
+    await page.getByTestId('add-benchtop').click();
+    await expect(parts.locator('.design')).toHaveCount(2);
     await expect(page.getByTestId('cut-list-totals')).toBeVisible();
 
     // The new part is selected, so editing the wizard must not touch the first.
@@ -167,19 +167,19 @@ test.describe('documents with several parts', () => {
       .locator('.field.number', { hasText: 'Length' })
       .locator('input')
       .fill('900');
-    await parts.locator('.part-row').first().locator('.part-select').click();
+    await parts.locator('.design').first().locator('.part-select').click();
     await expect(page.locator('.field.number', { hasText: 'Length' }).locator('input')).toHaveValue(
       '1800',
     );
 
-    await parts.locator('.part-row').last().getByRole('button', { name: 'remove' }).click();
-    await expect(parts.locator('.part-row')).toHaveCount(1);
+    await parts.locator('.design').last().getByRole('button', { name: 'remove' }).click();
+    await expect(parts.locator('.design')).toHaveCount(1);
   });
 
   test('two parts with the same name are reported, not silently accepted', async ({ page }) => {
     await page.goto(url, { waitUntil: 'networkidle' });
     await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
-    await page.getByTestId('add-part').click();
+    await page.getByTestId('add-benchtop').click();
     // Rename the new part onto the first one's name.
     await page.locator('.field', { hasText: 'Name' }).locator('input').fill('Benchtop');
 
@@ -192,7 +192,7 @@ test.describe('documents with several parts', () => {
     await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
     await page.locator('.field', { hasText: 'Part ID' }).locator('input').fill('CAN-001');
 
-    await page.getByTestId('parts-panel').locator('.part-row').first()
+    await page.getByTestId('parts-panel').locator('.design').first()
       .getByRole('button', { name: 'copy' }).click();
     // Two parts sharing a part number is exactly the collision that would send
     // one panel to the laser twice and the other not at all.
@@ -203,7 +203,7 @@ test.describe('documents with several parts', () => {
   test('one blocked part stops the whole document exporting', async ({ page }) => {
     await page.goto(url, { waitUntil: 'networkidle' });
     await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
-    await page.getByTestId('add-part').click();
+    await page.getByTestId('add-benchtop').click();
     await expect(page.getByTestId('export-all')).toBeEnabled();
 
     // 3000 mm overruns the 2500 mm bed on the second part only.
@@ -216,7 +216,7 @@ test.describe('documents with several parts', () => {
   test('the cut list counts quantities', async ({ page }) => {
     await page.goto(url, { waitUntil: 'networkidle' });
     await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
-    await page.getByTestId('add-part').click();
+    await page.getByTestId('add-benchtop').click();
     const totals = page.getByTestId('cut-list-totals');
     await expect(totals).toContainText('2');
 
@@ -224,6 +224,86 @@ test.describe('documents with several parts', () => {
     // Two rows, one of them three off.
     await expect(totals).toContainText('4');
     await expect(page.getByTestId('parts-panel')).toContainText('3 off');
+  });
+});
+
+test.describe('the canopy template', () => {
+  test('adds a canopy and swaps the wizard for it', async ({ page }) => {
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
+    await expect(page.getByTestId('template-panel')).toBeVisible();
+    await expect(page.getByTestId('canopy-panel')).toHaveCount(0);
+
+    await page.getByTestId('add-canopy').click();
+
+    // The wizard swaps to the canopy's own parameters — no edges, no cutouts.
+    await expect(page.getByTestId('canopy-panel')).toBeVisible();
+    await expect(page.getByTestId('template-panel')).toHaveCount(0);
+    await expect(page.getByTestId('canopy-caveat')).toContainText('skeleton');
+  });
+
+  test('makes six panels from one design', async ({ page }) => {
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
+    await page.getByTestId('add-canopy').click();
+
+    const design = page.getByTestId('parts-panel').locator('.design').last();
+    await expect(design).toContainText('6 panels');
+    await expect(design.locator('.panel-row')).toHaveCount(6);
+    await expect(design).toContainText('CAN-FLOOR');
+    await expect(design).toContainText('CAN-ROOF');
+
+    // One benchtop plus six canopy panels.
+    await expect(page.getByTestId('cut-list-totals')).toContainText('7');
+  });
+
+  test('drops the floor panel when the canopy sits on the tray', async ({ page }) => {
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
+    await page.getByTestId('add-canopy').click();
+    const design = page.getByTestId('parts-panel').locator('.design').last();
+    await expect(design.locator('.panel-row')).toHaveCount(6);
+
+    await page.getByTestId('canopy-floor').uncheck();
+    await expect(design.locator('.panel-row')).toHaveCount(5);
+    await expect(design).not.toContainText('CAN-FLOOR');
+  });
+
+  test('a panel can be picked and put on screen', async ({ page }) => {
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
+    await page.getByTestId('add-canopy').click();
+
+    // The roof is the last panel; selecting it must show that part, not the
+    // design's first one.
+    await page.getByTestId('parts-panel').locator('.panel-row').last().locator('button').click();
+    await expect(page.getByTestId('parts-panel').locator('.panel-row.active')).toContainText(
+      'CAN-ROOF',
+    );
+    // A flat panel has no bends, which is a fact about the skeleton worth
+    // seeing rather than assuming.
+    await expect(page.getByTestId('bend-table').locator('tbody tr')).toHaveCount(0);
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export');
+  });
+
+  test('reports a canopy too small to build, against its own design', async ({ page }) => {
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
+    await page.getByTestId('add-canopy').click();
+
+    await page
+      .getByTestId('canopy-panel')
+      .locator('.field.number', { hasText: 'Width' })
+      .locator('input')
+      .fill('1');
+    const design = page.getByTestId('parts-panel').locator('.design').last();
+    await expect(design).toContainText('will not build');
+    await expect(design.locator('.panel-row')).toHaveCount(0);
+    // The benchtop alongside it is unaffected, which is the point of catching
+    // this per design rather than per document.
+    await expect(page.getByTestId('parts-panel').locator('.design').first()).toContainText(
+      'Benchtop',
+    );
   });
 });
 

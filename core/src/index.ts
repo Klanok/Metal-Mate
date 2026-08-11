@@ -19,6 +19,8 @@ export * from './geometry/transform.js';
 export * from './geometry/boolean.js';
 
 export * from './model/graph.js';
+export * from './model/corner.js';
+export * from './model/assembly.js';
 
 export * from './features/types.js';
 export * from './features/regen.js';
@@ -35,6 +37,7 @@ export * from './validate/report.js';
 export * from './validate/validate.js';
 
 export * from './templates/benchtop.js';
+export * from './templates/canopy.js';
 
 export * from './io/exportProfile.js';
 export * from './io/dxfR12Writer.js';

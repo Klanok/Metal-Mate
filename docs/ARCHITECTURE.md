@@ -30,6 +30,8 @@ The first real workload is stainless benchtops: front edge folds, integral splas
 **Non-goals (v1)**
 
 - General 3D CAD, assemblies, freeform surfaces
+
+  *(Amended: `core/src/model/assembly.ts` places parts relative to each other, and is deliberately the narrow thing rather than the non-goal. One question — given two edges on two different parts that are supposed to meet, do they? — because a cross-part corner joint cannot be cut without an answer. Parts are placed like faces are: a root that stays put and everyone else brought to an already-placed neighbour by one edge mate, so the placement graph is a tree for the same reason the face-bend graph is. No mate solver with degrees of freedom, no interference checking, no sub-assemblies, no exploded views — those remain non-goals.)*
 - Stretch-forming features (pressed drainer grooves, coved splashback radii formed by rolling — note these as annotations, don't model the deformation)
 - Nesting, CAM, toolpaths
 - Costing (deliberately deferred; the data for it — mass, cut length, bend count — falls out of the model anyway)
@@ -266,6 +268,8 @@ Testing is the control system for AI-generated code — written alongside or bef
 **v1.x:** tab-and-slot corners, hems, batch export. *(Multi-part documents are built: `buildDocument` keys parts by name or part number — never by array position — carries a quantity per part for the cut-list rollup, and makes export all-or-nothing, since writing the good files and skipping the bad one is how half an assembly reaches the laser.)*
 
 **v2 — canopy template pack:** parametric ute canopy panels (sides, roof, doors, wing profiles) over the unchanged core — the real test that the template architecture holds.
+
+*(Skeleton built: `core/src/templates/canopy.ts` emits six flat panels and the assembly that positions them, over a core that learned nothing about canopies. It did surface one real finding — a template that makes more than one part cannot return a `Part`, so `canopyDocument` returns `{ parts, assembly }`. Everything else the canopy needs is still ahead of it: window apertures need a flange around an inner loop, which no feature can express; tapered panels need the corner mitre generalised from 45 degrees to half the dihedral; and the twelve seams stay butt joints until a `CornerJoint` can be carried across a mate.)*
 
 ---
 

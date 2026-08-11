@@ -13,10 +13,10 @@ respect.
 
 ## Status
 
-The domain core and the desktop shell are both built. 243 tests pass, plus
-21 browser tests against the built bundle.
+The domain core and the desktop shell are both built. 272 tests pass, plus
+26 browser tests against the built bundle.
 
-**Working today** (`core/`, 195 tests):
+**Working today** (`core/`, 221 tests):
 
 | Area | State |
 |---|---|
@@ -28,24 +28,27 @@ The domain core and the desktop shell are both built. 243 tests pass, plus
 | Materials and bend tables | 304/316, aluminium, Zincalume, mild steel; calibration back-solve from a measured test strip |
 | Machine profile | bed, tonnage, die rack, throat, open height, thickness limits; editable in the app, structurally checked, and flagged as a placeholder until confirmed |
 | Validation | 14 rules, each with a passing and a failing fixture; errors block export |
+| Canopy template | skeleton: six flat panels cut to the neutral-surface box, placed as an assembly tree, exported as a document |
 | Benchtop template | an edge on any of the four sides (square drop / drop-and-return / boxed / upstand), corners that close and weld (45° mitred returns) or relieve, sink, hob and tap cutouts |
 | DXF R12 export | arcs as bulges, layer mapping via export profiles, golden-file tested |
 | DXF import | reader plus healing (chains loose lines and arcs into closed loops) |
+| Part placement | edge mates position parts relative to each other, as a tree over parts, so cross-part joints have somewhere to meet |
 | Corner joints | weld gap and tab-and-slot, recorded alongside the tree and applied to the 2D profiles at unfold time |
 | Multi-part documents | several parts in one document, each keyed by name or part number, with quantities, a cut-list rollup and all-or-nothing export |
 | Project files | JSON payload, schema version, migration seam |
 
-**The app** (`app/`, Tauri 2 + React + Three.js, 48 unit + 21 browser tests):
+**The app** (`app/`, Tauri 2 + React + Three.js, 51 unit + 26 browser tests):
 
 | Area | State |
 |---|---|
+| Two templates | benchtop and canopy wizards; the form swaps with the design you select |
 | Benchtop wizard | every template parameter, live; cutouts added and edited in place |
 | 3D viewport | folded solid with a fold slider from flat to folded, orbit camera |
 | Flat preview | SVG with real arc commands, on the DXF layer colours |
 | Validation panel | full report, and it says the machine is a placeholder |
 | Feature tree and bend table | what the template generated, and where each allowance came from |
 | Export | DXF button disabled while errors stand; `exportDxf` re-checks anyway |
-| Parts list | add, copy and remove parts; per-part status; total mass and cut length across the document |
+| Designs and parts | designs you edit, the parts each one makes underneath; per-part status; total pieces, mass and cut length |
 | Shop settings | press brake editor, and bend calibration that back-solves K from a folded test strip |
 | Save / open | `.smp` project files through native dialogs; the machine and bend tables travel with the part |
 
@@ -58,10 +61,15 @@ display in the build environment. `npm run tauri dev` is the first thing to try
 on a real machine.
 
 **Not built yet:** PDF drawing output, hems, the sketcher, direct feature-tree
-editing, and nesting. Corner joints are in the core but not yet surfaced in the
-UI, and they join two flanges of one part — joints *between* parts need an
-assembly transform that does not exist yet. DXF import is in the core but not
-yet surfaced either.
+editing, and nesting.
+
+The canopy template is a **skeleton**: flat panels, butt-welded square corners,
+no window apertures, no tapers, no tabs, no lips. It is drivable from the app —
+add a canopy, size it, pick a panel — but it is not yet a canopy anybody would
+build. Corner joints and part placement are in the core but not surfaced in the
+UI, and joints still resolve inside one part, so the canopy's twelve seams are
+butt joints with no weld gap. DXF import is in the core but not surfaced
+either.
 
 **Not yet verified against reality**, and this matters before anyone cuts metal:
 
@@ -119,8 +127,8 @@ tag, since the installers would be split across them.
 
 ```bash
 npm install
-npm test          # 243 tests
-npm run test:ui -w @metal-mate/app   # 21 browser tests on the built bundle
+npm test          # 272 tests
+npm run test:ui -w @metal-mate/app   # 26 browser tests on the built bundle
 npm run typecheck
 npm run dev       # the UI in a browser, no Rust toolchain needed
 npm run tauri dev # the real desktop app

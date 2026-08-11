@@ -1,21 +1,32 @@
 /**
  * Document editing rules that are worth pinning down without a browser.
  *
- * The row list is ordinary immutable data, so add/duplicate/remove and the
- * naming rules are all testable here. The one that matters most is that a
- * duplicate is a *different part* — inheriting the original's part number is
- * how two panels end up sharing an identity and one of them never gets cut.
+ * The document is a list of *designs*, and the thing that makes that necessary
+ * is here: a benchtop design expands to one part, a canopy design to six. Get
+ * that mapping wrong and the wrong panel goes on screen, or the wrong design
+ * gets edited — neither of which the geometry tests would notice.
  */
 
-import { describe, expect, it } from 'vitest';
-import { DEFAULT_BENCHTOP, keyOf, benchtopPart } from '@metal-mate/core';
-import { initialDocument, makeRow, uniqueName, type PartRow } from '../src/state/useDocument.js';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { DEFAULT_BENCHTOP, DEFAULT_CANOPY, initBooleans, keyOf } from '@metal-mate/core';
+import {
+  type DesignRow,
+  benchtopRow,
+  canopyRow,
+  expandRow,
+  initialDocument,
+  uniqueName,
+} from '../src/state/useDocument.js';
 
-function rows(...names: string[]): PartRow[] {
-  return names.map((name) => makeRow({ ...DEFAULT_BENCHTOP, name }));
+function rows(...names: string[]): DesignRow[] {
+  return names.map((name) => benchtopRow({ ...DEFAULT_BENCHTOP, name }));
 }
 
-describe('naming parts in a document', () => {
+beforeAll(async () => {
+  await initBooleans();
+});
+
+describe('naming designs in a document', () => {
   it('leaves a free name alone', () => {
     expect(uniqueName(rows('Floor'), 'Roof')).toBe('Roof');
   });
@@ -29,37 +40,65 @@ describe('naming parts in a document', () => {
     expect(uniqueName(rows('Side', 'Side 3'), 'Side')).toBe('Side 2');
   });
 
-  it('gives every row its own uid, even for identical parameters', () => {
+  it('gives every design its own uid, even for identical parameters', () => {
     const [a, b] = rows('Side', 'Side');
     expect(a!.uid).not.toBe(b!.uid);
   });
 });
 
 describe('the starting document', () => {
-  it('opens with one part, selected', () => {
+  it('opens with one benchtop, selected', () => {
     const doc = initialDocument();
     expect(doc.rows).toHaveLength(1);
+    expect(doc.rows[0]!.kind).toBe('benchtop');
     expect(doc.activeUid).toBe(doc.rows[0]!.uid);
   });
 });
 
-describe('part identity across a document', () => {
-  it('distinguishes parts by name when they have no part number', () => {
-    const keys = ['Floor', 'Left side', 'Right side'].map((name) =>
-      keyOf(benchtopPart({ ...DEFAULT_BENCHTOP, name })),
-    );
-    expect(new Set(keys).size).toBe(3);
+describe('expanding a design into parts', () => {
+  it('makes one part from a benchtop', () => {
+    const expanded = expandRow(benchtopRow());
+    expect(expanded.error).toBeNull();
+    expect(expanded.parts).toHaveLength(1);
   });
 
-  it('collides two parts that share a part number, which the build reports', () => {
-    const a = keyOf(benchtopPart({ ...DEFAULT_BENCHTOP, name: 'Floor', partId: 'CAN-1' }));
-    const b = keyOf(benchtopPart({ ...DEFAULT_BENCHTOP, name: 'Roof', partId: 'CAN-1' }));
-    expect(a).toBe(b);
+  it('makes six panels from a canopy, all under the one design', () => {
+    const row = canopyRow();
+    const expanded = expandRow(row);
+    expect(expanded.error).toBeNull();
+    expect(expanded.parts).toHaveLength(6);
+    expect(expanded.parts.every((p) => p.rowUid === row.uid)).toBe(true);
+    expect(expanded.parts.map((p) => p.part!.parameters.partId)).toEqual([
+      'CAN-FLOOR',
+      'CAN-FRONT',
+      'CAN-REAR',
+      'CAN-LEFT',
+      'CAN-RIGHT',
+      'CAN-ROOF',
+    ]);
   });
 
-  it('carries quantity from the wizard through to the part', () => {
-    const part = benchtopPart({ ...DEFAULT_BENCHTOP, quantity: 2 });
-    expect(part.parameters.quantity).toBe(2);
-    expect(benchtopPart(DEFAULT_BENCHTOP).parameters.quantity).toBeUndefined();
+  it('drops to five panels when the canopy sits on the tray', () => {
+    expect(expandRow(canopyRow({ ...DEFAULT_CANOPY, floor: false })).parts).toHaveLength(5);
+  });
+
+  it('gives every part its own uid across the whole document', () => {
+    const all = [expandRow(canopyRow()), expandRow(canopyRow()), expandRow(benchtopRow())]
+      .flatMap((e) => e.parts)
+      .map((p) => p.partUid);
+    expect(new Set(all).size).toBe(all.length);
+  });
+
+  it('reports a design that cannot build, rather than throwing', () => {
+    const expanded = expandRow(canopyRow({ ...DEFAULT_CANOPY, widthMm: 1 }));
+    expect(expanded.parts).toEqual([]);
+    expect(expanded.error).toMatch(/nothing left/);
+  });
+
+  it('keeps every panel of one canopy distinct once keyed for the document', () => {
+    // Six panels that shared a key would look like six copies of one part and
+    // the document build would refuse the lot.
+    const parts = expandRow(canopyRow()).parts.map((p) => keyOf(p.part!));
+    expect(new Set(parts).size).toBe(6);
   });
 });
