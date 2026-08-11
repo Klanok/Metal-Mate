@@ -37,6 +37,7 @@ export * from './validate/report.js';
 export * from './validate/validate.js';
 
 export * from './templates/benchtop.js';
+export * from './templates/canopy.js';
 
 export * from './io/exportProfile.js';
 export * from './io/dxfR12Writer.js';

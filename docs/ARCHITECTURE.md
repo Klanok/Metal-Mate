@@ -269,6 +269,8 @@ Testing is the control system for AI-generated code — written alongside or bef
 
 **v2 — canopy template pack:** parametric ute canopy panels (sides, roof, doors, wing profiles) over the unchanged core — the real test that the template architecture holds.
 
+*(Skeleton built: `core/src/templates/canopy.ts` emits six flat panels and the assembly that positions them, over a core that learned nothing about canopies. It did surface one real finding — a template that makes more than one part cannot return a `Part`, so `canopyDocument` returns `{ parts, assembly }`. Everything else the canopy needs is still ahead of it: window apertures need a flange around an inner loop, which no feature can express; tapered panels need the corner mitre generalised from 45 degrees to half the dihedral; and the twelve seams stay butt joints until a `CornerJoint` can be carried across a mate.)*
+
 ---
 
 ## Appendix A — Bend allowance reference

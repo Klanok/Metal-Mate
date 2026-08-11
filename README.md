@@ -13,10 +13,10 @@ respect.
 
 ## Status
 
-The domain core and the desktop shell are both built. 257 tests pass, plus
+The domain core and the desktop shell are both built. 269 tests pass, plus
 21 browser tests against the built bundle.
 
-**Working today** (`core/`, 209 tests):
+**Working today** (`core/`, 221 tests):
 
 | Area | State |
 |---|---|
@@ -28,6 +28,7 @@ The domain core and the desktop shell are both built. 257 tests pass, plus
 | Materials and bend tables | 304/316, aluminium, Zincalume, mild steel; calibration back-solve from a measured test strip |
 | Machine profile | bed, tonnage, die rack, throat, open height, thickness limits; editable in the app, structurally checked, and flagged as a placeholder until confirmed |
 | Validation | 14 rules, each with a passing and a failing fixture; errors block export |
+| Canopy template | skeleton: six flat panels cut to the neutral-surface box, placed as an assembly tree, exported as a document |
 | Benchtop template | an edge on any of the four sides (square drop / drop-and-return / boxed / upstand), corners that close and weld (45° mitred returns) or relieve, sink, hob and tap cutouts |
 | DXF R12 export | arcs as bulges, layer mapping via export profiles, golden-file tested |
 | DXF import | reader plus healing (chains loose lines and arcs into closed loops) |
@@ -59,10 +60,15 @@ display in the build environment. `npm run tauri dev` is the first thing to try
 on a real machine.
 
 **Not built yet:** PDF drawing output, hems, the sketcher, direct feature-tree
-editing, and nesting. Corner joints and part placement are in the core but not
-yet surfaced in the UI, and joints still apply within one part — carrying them
-across a mate is the next step. DXF import is in the core but not surfaced
-either.
+editing, and nesting.
+
+The canopy template is a **skeleton**: flat panels, butt-welded square corners,
+no window apertures, no tapers, no tabs, no lips. It exists to prove the
+template layer holds over an unchanged core, and it does — but it is not yet a
+canopy anybody would build. Corner joints and part placement are in the core
+but not surfaced in the UI, and joints still resolve inside one part, so the
+canopy's twelve seams are butt joints with no weld gap. DXF import is in the
+core but not surfaced either.
 
 **Not yet verified against reality**, and this matters before anyone cuts metal:
 
@@ -120,7 +126,7 @@ tag, since the installers would be split across them.
 
 ```bash
 npm install
-npm test          # 257 tests
+npm test          # 269 tests
 npm run test:ui -w @metal-mate/app   # 21 browser tests on the built bundle
 npm run typecheck
 npm run dev       # the UI in a browser, no Rust toolchain needed
