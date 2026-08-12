@@ -274,11 +274,23 @@ export function CanopyPanel({ params, materials, onChange }: CanopyPanelProps): 
               step={1}
               onChange={(v) => patch({ doors: patchDoors(params, { returnMm: v }) })}
             />
+            <NumberField
+              label="Swing open"
+              value={firstDoor(params).openDeg ?? 0}
+              step={5}
+              onChange={(v) => patch({ doors: patchDoors(params, { openDeg: v }) })}
+            />
             <p className="muted" data-testid="canopy-door-note">
-              Head, sill and jamb are the metal left around the opening — that strip is all that
-              holds the wall together once the hole is cut, and on a full-width door it is doing the
-              work a frame would. The corner radius is not decoration: a square internal corner is
-              where a crack starts, and this one spends its life being shaken on a ute.
+              Head, sill and jamb are the frame: the top rail the door hangs off, the sill under it,
+              and a post at each end. Cut in one piece rather than riveted up from four, which is
+              stiffer and one job on the laser instead of four on the brake. The corner radius is
+              not decoration — a square internal corner is where a crack starts, and this one spends
+              its life being shaken on a ute.
+            </p>
+            <p className="muted" data-testid="canopy-swing-note">
+              <strong>Swing open</strong> is a view, not a dimension. The doors are gullwings: they
+              hinge on the top rail and lift up and out, so nothing fouls the tray side when you open
+              one alongside a wall. Swinging them changes no blank, no bend and no flat pattern.
             </p>
           </>
         )}

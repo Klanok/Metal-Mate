@@ -306,6 +306,31 @@ test.describe('the canopy template', () => {
     await expect(design.locator('.panel-row')).toHaveCount(6);
   });
 
+  test('swings the doors open without touching the flat pattern', async ({ page }) => {
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
+    await page.getByTestId('add-canopy').click();
+    await page.getByTestId('canopy-door-left').check();
+    await expect(page.getByTestId('canopy-swing-note')).toContainText('gullwings');
+
+    const design = page.getByTestId('parts-panel').locator('.design').last();
+    await design.locator('.panel-row', { hasText: 'CAN-LEFT-DOOR' }).locator('button').first().click();
+    const bends = page.getByTestId('bend-table').locator('tbody tr');
+    await expect(bends).toHaveCount(4);
+    const before = await bends.allTextContents();
+
+    const swing = page
+      .getByTestId('canopy-panel')
+      .locator('.field.number', { hasText: 'Swing open' })
+      .locator('input');
+    await swing.fill('65');
+
+    // The door is drawn open; nothing it is cut or folded from has changed.
+    await expect(bends).toHaveCount(4);
+    expect(await bends.allTextContents()).toEqual(before);
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export');
+  });
+
   test('refuses margins that leave no opening, rather than drawing nonsense', async ({ page }) => {
     await page.goto(url, { waitUntil: 'networkidle' });
     await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });

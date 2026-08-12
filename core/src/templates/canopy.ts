@@ -238,15 +238,29 @@ export interface CanopyDoor {
   readonly lapMm?: number;
   /** Depth of the return folded back around the door, mm. */
   readonly returnMm?: number;
+  /**
+   * How far the door is swung open in the 3D view, degrees.
+   *
+   * A gullwing hinges along its own top edge and lifts up and out, so this is a
+   * rotation about that line and nothing else — it changes no blank, no bend and
+   * no flat pattern. It is there because a canopy you cannot see open tells you
+   * nothing about whether you can reach into it.
+   */
+  readonly openDeg?: number;
 }
 
 const DOOR_DEFAULTS = {
-  headMm: 60,
-  sillMm: 60,
-  jambMm: 60,
-  cornerRadiusMm: 20,
+  // A full-width door is the whole point of this construction: the reference
+  // canopies make a virtue of there being no obstruction along the top edge of
+  // the tub. So the metal left round the opening is a frame — a top rail, a
+  // sill and two posts — rather than a broad border with a window in it.
+  headMm: 70,
+  sillMm: 70,
+  jambMm: 70,
+  cornerRadiusMm: 25,
   lapMm: 20,
   returnMm: 20,
+  openDeg: 0,
 } as const;
 
 /** One door's numbers with the defaults filled in. */
@@ -258,6 +272,7 @@ interface DoorSpec {
   readonly cornerRadiusMm: number;
   readonly lapMm: number;
   readonly returnMm: number;
+  readonly openDeg: number;
 }
 
 function doorSpec(door: CanopyDoor): DoorSpec {
@@ -285,10 +300,10 @@ interface Aperture {
   /** The door's blank, the same shape grown by the lap. */
   readonly blank: readonly Vec2[];
   readonly cornerRadiusMm: number;
-  /** Where the blank sits along the wall's bottom edge, mm. */
+  /** Where the blank sits along the wall's hinge edge, mm. */
   readonly alongMm: number;
-  /** How far up the wall from that edge the blank starts, mm. */
-  readonly upMm: number;
+  /** How far into the wall from that edge the blank starts, mm. */
+  readonly intoMm: number;
 }
 
 /**
@@ -331,25 +346,32 @@ function apertureFor(shape: PanelShape, door: DoorSpec): Aperture {
     );
   }
 
-  // Where the blank sits relative to the wall's bottom edge, so the mate can
-  // state it rather than the caller re-deriving it from a bounding box that no
-  // longer describes a leaning wall.
+  // Where the door's hinge line sits, measured off the wall's BOTTOM edge.
+  //
+  // The hinge is the blank's own top edge, and the mate turns the guest about
+  // whichever edge it is mated on — so the door's top edge is what gets mated.
+  // The wall edge it is mated *to* has to be the bottom one, though, and that
+  // is not arbitrary: a mate sends the guest's material away from the host's,
+  // so hanging the door off the wall's top edge forces it upward off the roof.
+  // Measured from the bottom edge, "away" is downward, which is where a door
+  // hangs. `beyondMm` then lifts the hinge line back up to the head.
   const bottom = shape.edgeIndex.get('bottom');
-  if (bottom === undefined) {
-    throw new CanopyParameterError(`the ${door.wall} wall has no bottom edge to hang a door off`);
+  const top = shape.edgeIndex.get('top');
+  if (bottom === undefined || top === undefined) {
+    throw new CanopyParameterError(`the ${door.wall} wall has no top and bottom edge to hang a door off`);
   }
   const from = shape.at[bottom]!;
   const dir = normalize(sub(shape.at[(bottom + 1) % shape.at.length]!, from));
-  const up = leftNormal(dir);
-  const corner = blank[bottom]!;
-  const delta = sub(corner, from);
+  const into = leftNormal(dir);
+  // The start of the blank's top edge: the end of the hinge the mate anchors on.
+  const delta = sub(blank[top]!, from);
 
   return {
     opening,
     blank,
     cornerRadiusMm: door.cornerRadiusMm,
     alongMm: dot(delta, dir),
-    upMm: dot(delta, up),
+    intoMm: dot(delta, into),
   };
 }
 
@@ -570,21 +592,25 @@ export function canopyDocument(params: CanopyParams): TemplateDocument {
     );
   }
 
-  // Each door hangs on its own wall: same plane, lifted one thickness so it
-  // lies on the outside skin rather than through it, slid up off the wall's
-  // bottom edge to sit over the opening. Every number here is stated rather
-  // than solved for, the same as every other mate.
+  // Each door hangs off its own wall's top edge, one thickness proud so it lies
+  // on the outside skin rather than through it. The mate rotates the guest about
+  // the edge it is mated on, so mating the top edge is what makes the top edge a
+  // hinge: shut at zero, and swinging up and out as it opens. Every number is
+  // stated rather than solved for, the same as every other mate.
   for (const { door, aperture } of doors) {
     mates.push({
       id: `${door.wall}-door`,
       part: partId(doorPartNumber(params, door.wall)),
-      edge: { faceId: faceId(`${door.wall}-door`), edgeName: 'bottom' },
+      edge: { faceId: faceId(`${door.wall}-door`), edgeName: 'top' },
       to: key(params, door.wall),
       toEdge: { faceId: panelFaceId(door.wall), edgeName: 'bottom' },
-      angleDeg: 0,
+      // Negative swings the door up and *out*. Positive carries the guest's
+      // material toward the back of the host face, which on a wall means into
+      // the canopy — a door that opens into its own load space.
+      angleDeg: -door.openDeg,
       offsetMm: aperture.alongMm,
       standoffMm: params.thicknessMm,
-      beyondMm: -aperture.upMm,
+      beyondMm: -aperture.intoMm,  // lift the hinge line up to the head
       label: `${PANEL_LABELS[door.wall]} door onto ${PANEL_LABELS[door.wall]}`,
     });
   }
