@@ -730,9 +730,10 @@ describe('canopy doors', () => {
     const wall = span(outerOf(partNamed(doc, 'CAN-LEFT')));
     const opening = span(openingIn(partNamed(doc, 'CAN-LEFT'))[0]!.loop.verts);
 
-    // Defaults: 60 mm jambs, 60 mm head and sill.
-    expect(opening.width).toBeCloseTo(wall.width - 120, 5);
-    expect(opening.height).toBeCloseTo(wall.height - 120, 5);
+    // Defaults: 70 mm jambs, 70 mm head and sill — the frame around a
+    // full-width door, not a border with a window in it.
+    expect(opening.width).toBeCloseTo(wall.width - 140, 5);
+    expect(opening.height).toBeCloseTo(wall.height - 140, 5);
 
     // 20 mm lap all round, so the blank is 40 mm bigger than the hole each way.
     const door = span(outerOf(partNamed(doc, 'CAN-LEFT-DOOR')));
@@ -756,17 +757,136 @@ describe('canopy doors', () => {
     }
 
     // Up the wall by the sill less the lap: the door's bottom edge sits 20 mm
-    // below the top of the 60 mm sill. A flipped sign hangs it under the ute.
+    // below the top of the 70 mm sill. A flipped sign hangs it under the ute.
     for (const p of [door.p0, door.p1]) {
-      expect(dot3(sub3(p, wall.p0), wall.inward)).toBeCloseTo(40, 4);
+      expect(dot3(sub3(p, wall.p0), wall.inward)).toBeCloseTo(50, 4);
     }
 
-    // The mate lines the two edges up antiparallel, so the door's own p0 is its
-    // far corner. What matters is the span it covers: from the jamb less the
-    // lap, to that plus the width of the blank.
+    // Which way round the door's own edge runs is the mate's business. What
+    // matters is that the blank spans its full width across the opening, and
+    // that both ends land inside the wall rather than off the end of it.
     const along = [door.p0, door.p1].map((p) => dot3(sub3(p, wall.p0), wall.dir));
-    expect(Math.min(...along)).toBeCloseTo(40, 4);
-    expect(Math.max(...along)).toBeCloseTo(40 + doorWidth, 4);
+    expect(Math.abs(along[0]! - along[1]!)).toBeCloseTo(doorWidth, 3);
+    const wallLength = Math.hypot(
+      wall.p1.x - wall.p0.x,
+      wall.p1.y - wall.p0.y,
+      wall.p1.z - wall.p0.z,
+    );
+    for (const a of along) {
+      expect(Math.abs(a)).toBeGreaterThan(0);
+      expect(Math.abs(a)).toBeLessThanOrEqual(wallLength + 1e-6);
+    }
+  });
+
+  it('follows a leaning wall instead of forcing a rectangle into it', () => {
+    // This is the case that shipped broken. With the sides leaned in, the rear
+    // wall is a trapezium; a rectangle inset from its bounding box pokes out
+    // through the sloping edge, and the whole canopy failed to build.
+    const leaning: CanopyParams = {
+      ...CANOPY,
+      taperDeg: { leftDeg: 5, rightDeg: 5 },
+      doors: [{ wall: 'left' }, { wall: 'right' }, { wall: 'rear' }],
+    };
+    expect(() => canopyDocument(leaning)).not.toThrow();
+
+    const rear = partNamed(canopyDocument(leaning), 'CAN-REAR');
+    const wall = outerOf(rear);
+    const opening = openingIn(rear)[0]!.loop.verts;
+
+    // The wall narrows toward the top, and so does its opening: the margins are
+    // true all the way round rather than true at the bottom and wrong at the top.
+    const widthAt = (vs: readonly { x: number; y: number }[], high: boolean) => {
+      const ys = vs.map((v) => v.y);
+      const cut = (Math.min(...ys) + Math.max(...ys)) / 2;
+      const half = vs.filter((v) => (high ? v.y > cut : v.y < cut));
+      return Math.max(...half.map((v) => v.x)) - Math.min(...half.map((v) => v.x));
+    };
+    // Which end of the panel's own y axis is the top is the frame's business,
+    // not this test's; what matters is that the opening tapers the same way the
+    // wall does rather than staying square inside it.
+    const wallTaper = widthAt(wall, true) - widthAt(wall, false);
+    const openingTaper = widthAt(opening, true) - widthAt(opening, false);
+    expect(Math.abs(wallTaper)).toBeGreaterThan(1);
+    expect(Math.sign(openingTaper)).toBe(Math.sign(wallTaper));
+
+    // And the opening stays inside the metal.
+    const xs = wall.map((v) => v.x);
+    const ys = wall.map((v) => v.y);
+    for (const v of opening) {
+      expect(v.x).toBeGreaterThan(Math.min(...xs));
+      expect(v.x).toBeLessThan(Math.max(...xs));
+      expect(v.y).toBeGreaterThan(Math.min(...ys));
+      expect(v.y).toBeLessThan(Math.max(...ys));
+    }
+  });
+
+  it('hangs a door on every leaning wall, still one thickness proud', () => {
+    const leaning: CanopyParams = {
+      ...CANOPY,
+      taperDeg: { leftDeg: 5, rightDeg: 5 },
+      doors: [{ wall: 'left' }, { wall: 'right' }, { wall: 'rear' }],
+    };
+    const { parts, places } = placeAll(leaning);
+    for (const wall of ['left', 'right', 'rear'] as const) {
+      const wk = partId(`CAN-${wall.toUpperCase()}`);
+      const dk = partId(`CAN-${wall.toUpperCase()}-DOOR`);
+      const w = worldEdge(parts.get(wk)!, places.get(wk)!, faceId(wall), 'bottom');
+      const d = worldEdge(parts.get(dk)!, places.get(dk)!, faceId(`${wall}-door`), 'bottom');
+      const gap = sub3(d.p0, w.p0);
+      expect(dot3(gap, w.normal)).toBeCloseTo(T, 4);
+      expect(dot3(gap, w.inward)).toBeCloseTo(50, 4);
+    }
+  });
+
+  it('hinges on its top edge and swings up and out', () => {
+    /** The middle of the door's free edge, relative to its wall's top edge. */
+    const freeEdge = (openDeg: number) => {
+      const params: CanopyParams = { ...CANOPY, doors: [{ wall: 'left', openDeg }] };
+      const { parts, places } = placeAll(params);
+      const wk = partId('CAN-LEFT');
+      const dk = partId('CAN-LEFT-DOOR');
+      const top = worldEdge(parts.get(wk)!, places.get(wk)!, faceId('left'), 'top');
+      const free = worldEdge(parts.get(dk)!, places.get(dk)!, faceId('left-door'), 'bottom');
+      const mid = {
+        x: (free.p0.x + free.p1.x) / 2,
+        y: (free.p0.y + free.p1.y) / 2,
+        z: (free.p0.z + free.p1.z) / 2,
+      };
+      const g = sub3(mid, top.p0);
+      return { out: dot3(g, top.normal), down: dot3(g, top.inward) };
+    };
+
+    // Shut: lying on the wall one thickness proud, hanging below the top edge.
+    const shut = freeEdge(0);
+    expect(shut.out).toBeCloseTo(T, 3);
+    expect(shut.down).toBeGreaterThan(0);
+
+    // Opening lifts the free edge and carries it outward, away from the load
+    // space. A door that swings the other way opens into its own cargo.
+    const part = freeEdge(30);
+    const wide = freeEdge(70);
+    expect(part.out).toBeGreaterThan(shut.out);
+    expect(wide.out).toBeGreaterThan(part.out);
+    expect(part.down).toBeLessThan(shut.down);
+    expect(wide.down).toBeLessThan(part.down);
+  });
+
+  it('opening a door changes nothing that gets cut or folded', () => {
+    // How far open the door is drawn is a view, not a dimension. If it reached
+    // the blank or the bend table, the flat pattern would depend on how somebody
+    // happened to leave a slider.
+    const shut = canopyDocument({ ...CANOPY, doors: [{ wall: 'left', openDeg: 0 }] });
+    const open = canopyDocument({ ...CANOPY, doors: [{ wall: 'left', openDeg: 62 }] });
+    const blank = (d: ReturnType<typeof canopyDocument>) =>
+      JSON.stringify(
+        partNamed(d, 'CAN-LEFT-DOOR').features.map((f) =>
+          f.kind === 'edge-flange' ? { ...f, id: String(f.id) } : f,
+        ),
+      );
+    expect(blank(open)).toEqual(blank(shut));
+    expect(JSON.stringify(outerOf(partNamed(open, 'CAN-LEFT')))).toEqual(
+      JSON.stringify(outerOf(partNamed(shut, 'CAN-LEFT'))),
+    );
   });
 
   it('refuses margins that leave no opening', () => {

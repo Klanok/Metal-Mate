@@ -334,3 +334,68 @@ function pointOnSegment(a: Vec2, b: Vec2, p: Vec2, tol: number): boolean {
   t = t < 0 ? 0 : t > 1 ? 1 : t;
   return distance({ x: a.x + t * abx, y: a.y + t * aby }, p) <= tol;
 }
+
+/**
+ * Round every corner of a convex polygon to the same radius.
+ *
+ * `roundedRect` does this for an axis-aligned box, which is all a sink cutout
+ * ever needs. A door opening in a wall that leans in is a trapezium, so its
+ * corners are not right angles and the radius has to be fitted to whatever
+ * angle each corner actually turns through.
+ *
+ * At a corner turning through `theta`, an arc of radius `r` tangent to both
+ * edges meets them a distance `r / tan((pi - theta) / 2)` back from the corner.
+ * The radius is reduced if two corners would otherwise eat past each other on a
+ * short edge, so a big radius on a small opening degrades rather than
+ * self-intersects.
+ *
+ * Points must be counter-clockwise and convex, which every panel outline in
+ * this codebase is — a canopy wall is a rectangle or a trapezium.
+ */
+export function filletPolygon(pts: readonly Vec2[], r: number): Loop {
+  if (r <= TOL || pts.length < 3) return polygon(pts);
+
+  const n = pts.length;
+  const dirs = pts.map((p, i) => normalize(sub(pts[(i + 1) % n]!, p)));
+  const lengths = pts.map((p, i) => distance(p, pts[(i + 1) % n]!));
+
+  // How far back from each corner the tangent point sits, before any trimming.
+  const turn = pts.map((_, i) => {
+    const into = dirs[(i - 1 + n) % n]!;
+    const out = dirs[i]!;
+    const cross = into.x * out.y - into.y * out.x;
+    const dot = into.x * out.x + into.y * out.y;
+    return Math.atan2(cross, dot);
+  });
+  // Tangent distance back from a corner turning through theta is r*tan(theta/2).
+  // A corner that barely turns gets none: it is a straight edge in two pieces.
+  const scaled = turn.map((t) => (Math.abs(t) <= ANGLE_TOL ? 0 : r * Math.tan(Math.abs(t) / 2)));
+  for (let i = 0; i < n; i += 1) {
+    const j = (i + 1) % n;
+    const room = lengths[i]!;
+    const want = scaled[i]! + scaled[j]!;
+    if (want > room && want > TOL) {
+      const k = room / want;
+      scaled[i] = scaled[i]! * k;
+      scaled[j] = scaled[j]! * k;
+    }
+  }
+
+  const verts: Vertex[] = [];
+  for (let i = 0; i < n; i += 1) {
+    const t = turn[i]!;
+    const d = scaled[i]!;
+    if (d <= TOL) {
+      verts.push(vertex(pts[i]!.x, pts[i]!.y, 0));
+      continue;
+    }
+    const into = dirs[(i - 1 + n) % n]!;
+    const out = dirs[i]!;
+    const start = sub(pts[i]!, scale(into, d));
+    const end = add(pts[i]!, scale(out, d));
+    // The arc turns through the same angle the corner did.
+    verts.push(vertex(start.x, start.y, Math.tan(t / 4)));
+    verts.push(vertex(end.x, end.y, 0));
+  }
+  return loop(verts);
+}
