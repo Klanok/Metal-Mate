@@ -1,6 +1,6 @@
 [package]
 name = "metal-mate"
-version = "0.1.9"
+version = "0.1.10"
 description = "Desktop 3D sheet metal modeller: unfold to flat, DXF for the laser"
 authors = ["Metal Mate"]
 edition = "2021"
