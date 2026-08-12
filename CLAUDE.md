@@ -58,6 +58,13 @@ The version number lives in three files that must move together:
 Change that lockfile entry *by line, not by find-and-replace* — `crypto-common`
 sat at `0.1.7` too, and a blind replace takes a dependency with it.
 
+**A hand-run needs its `tag` input, and the default hides the mistake.** The
+`workflow_dispatch` input defaults to `v0.0.0-dev`, so dispatching without it
+builds a draft under that name rather than failing. Nothing appears under the
+version you meant to cut, and the only symptom is an absence. Always pass
+`tag`, and check the Releases page shows the draft you expected before telling
+anyone the build is running.
+
 **Merge the bump to `main` before building.** Publishing a draft release
 through the GitHub web UI submits its own target branch, which overwrites the
 `target_commitish` the workflow passes. The tag is therefore minted at `main`'s
