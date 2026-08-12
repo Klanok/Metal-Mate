@@ -266,7 +266,15 @@ export function checkAssembly(
       problems.push({ mateId: mate.id, message: `on ${mate.to}: ${lengthB}` });
       continue;
     }
-    if (Math.abs(lengthA - lengthB) > 1e-6) {
+    // Equal lengths are required of a *butt*, where the mate is claiming the
+    // two edges lie on each other. A lap makes no such claim: the placed edge
+    // sits off the host's face or past its edge, so on any body that is not
+    // square the two are at different stations and genuinely differ in length.
+    // Checking it anyway would refuse correct geometry, which is worse than not
+    // checking it — so the check follows the claim rather than the other way
+    // round.
+    const butt = (mate.standoffMm ?? 0) === 0 && (mate.beyondMm ?? 0) === 0;
+    if (butt && Math.abs(lengthA - lengthB) > 1e-6) {
       problems.push({
         mateId: mate.id,
         message: `the two edges are ${lengthA.toFixed(3)} and ${lengthB.toFixed(3)} mm long, so they do not meet along their whole length`,

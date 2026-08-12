@@ -13,9 +13,23 @@
  * clean-looking form.
  */
 
-import type { CanopyParams, Material } from '@metal-mate/core';
-import { canopyPanels } from '@metal-mate/core';
+import type { CanopyMeasures, CanopyParams, Material } from '@metal-mate/core';
+import { canopyMeasures, canopyPanels } from '@metal-mate/core';
 import { NumberField } from './NumberField.js';
+
+/** Drop the rivet spec entirely rather than setting it undefined. */
+function withoutRivets(params: CanopyParams): CanopyParams {
+  const { rivet: _rivet, ...rest } = params;
+  return rest;
+}
+
+function measuresOf(params: CanopyParams): CanopyMeasures | null {
+  try {
+    return canopyMeasures(params);
+  } catch {
+    return null;
+  }
+}
 
 export interface CanopyPanelProps {
   readonly params: CanopyParams;
@@ -28,6 +42,10 @@ export function CanopyPanel({ params, materials, onChange }: CanopyPanelProps): 
   const material = materials.find((m) => m.id === params.materialId);
   const t = params.thicknessMm;
   const lip = params.lipMm ?? 0;
+  // A body that cannot be built has no dimensions to report; the parts list
+  // says what is wrong with it, so this just goes quiet rather than throwing
+  // out of a render.
+  const measures = measuresOf(params);
 
   return (
     <section className="panel template" data-testid="canopy-panel">
@@ -49,11 +67,116 @@ export function CanopyPanel({ params, materials, onChange }: CanopyPanelProps): 
           <span>Include a floor — leave it off if the canopy sits on the ute&apos;s own tray</span>
         </label>
         <NumberField label="Lip" value={params.lipMm ?? 0} onChange={(v) => patch({ lipMm: v })} />
+        <label className="field">
+          <span>Top seam</span>
+          <select
+            data-testid="canopy-lip-on"
+            value={params.lipOn ?? 'walls'}
+            onChange={(e) => patch({ lipOn: e.target.value as 'walls' | 'roof' })}
+          >
+            <option value="walls">Walls lip in, roof lands on them</option>
+            <option value="roof">Roof returns down, walls lap inside</option>
+          </select>
+        </label>
         <p className="muted" data-testid="canopy-lip-note">
-          {lip > 0
-            ? `Each wall turns ${lip} mm inward at the top and bottom, mitred at every corner. The roof lands on the top lips and the bottom lips land on the floor, so the outside height is still ${params.heightMm} mm.`
-            : 'Zero lip: the panels butt edge to edge, with nothing to bolt or clamp through.'}
+          {lip <= 0
+            ? 'Zero lip: the panels butt edge to edge, with nothing to bolt or clamp through.'
+            : (params.lipOn ?? 'walls') === 'roof'
+              ? `The roof turns ${lip} mm down outside each wall, mitred at every corner, and the wall laps up inside it. The top corner is a bend rather than a joint, so the rivets sit on the wall face below it instead of on the edge you look at. Outside height is still ${params.heightMm} mm.`
+              : `Each wall turns ${lip} mm inward at the top and bottom, mitred at every corner. The roof lands on the top lips and the bottom lips land on the floor, so the outside height is still ${params.heightMm} mm.`}
         </p>
+      </fieldset>
+
+      <fieldset data-testid="canopy-rivets">
+        <legend>Rivets</legend>
+        <label className="field toggle">
+          <input
+            type="checkbox"
+            data-testid="canopy-riveted"
+            checked={params.rivet !== undefined}
+            onChange={(e) =>
+              onChange(
+                e.target.checked
+                  ? { ...params, rivet: params.rivet ?? { diameterMm: 4.8, pitchMm: 100 } }
+                  : withoutRivets(params),
+              )
+            }
+          />
+          <span>Rivet the seams</span>
+        </label>
+        {params.rivet !== undefined && (
+          <>
+            <NumberField
+              label="Rivet"
+              value={params.rivet.diameterMm}
+              step={0.2}
+              onChange={(v) => patch({ rivet: { ...params.rivet!, diameterMm: v } })}
+            />
+            <NumberField
+              label="Pitch"
+              value={params.rivet.pitchMm}
+              step={5}
+              onChange={(v) => patch({ rivet: { ...params.rivet!, pitchMm: v } })}
+            />
+            <p className="muted" data-testid="canopy-rivet-note">
+              Holes go down the middle of each lip at this pitch or a little under, so the run
+              divides evenly. They are cut in the <strong>lip only</strong>: the spacing would match
+              on the panel that lands on it, but how far the holes sit from the seam depends on the
+              bend allowance, and K has not been measured for this shop yet. Clamp up and drill
+              through.
+            </p>
+          </>
+        )}
+      </fieldset>
+
+      <fieldset data-testid="canopy-taper">
+        <legend>Taper</legend>
+        <p className="muted">
+          Length, width and height above are the <strong>footprint and the front</strong>. Leaning a
+          wall in or dropping the roof changes what the back and the top measure, so those are
+          reported below rather than assumed.
+        </p>
+        <NumberField
+          label="Roof drop"
+          value={params.roofDropMm ?? 0}
+          onChange={(v) => patch({ roofDropMm: v })}
+        />
+        {(
+          [
+            ['leftDeg', 'Left lean'],
+            ['rightDeg', 'Right lean'],
+            ['frontDeg', 'Front lean'],
+            ['rearDeg', 'Rear lean'],
+          ] as const
+        ).map(([field, label]) => (
+          <NumberField
+            key={field}
+            label={label}
+            unit="°"
+            step={0.5}
+            value={params.taperDeg?.[field] ?? 0}
+            onChange={(v) => patch({ taperDeg: { ...params.taperDeg, [field]: v } })}
+          />
+        ))}
+        {measures !== null && (
+          <dl className="stats" data-testid="canopy-measures">
+            <div>
+              <dt>Roof width</dt>
+              <dd>
+                {measures.roofWidthFrontMm.toFixed(0)} front / {measures.roofWidthRearMm.toFixed(0)}{' '}
+                rear
+              </dd>
+            </div>
+            <div>
+              <dt>Roof length</dt>
+              <dd>{measures.roofLengthMm.toFixed(0)} mm</dd>
+            </div>
+            <div>
+              <dt>Height at rear</dt>
+              <dd>{measures.rearHeightMm.toFixed(0)} mm</dd>
+            </div>
+          </dl>
+        )}
       </fieldset>
 
       <fieldset>

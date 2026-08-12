@@ -8,7 +8,14 @@
  */
 
 import { beforeAll, describe, expect, it } from 'vitest';
-import { DEFAULT_BENCHTOP, DEFAULT_CANOPY, initBooleans, keyOf } from '@metal-mate/core';
+import {
+  DEFAULT_BENCHTOP,
+  DEFAULT_CANOPY,
+  canopyDocument,
+  initBooleans,
+  keyOf,
+} from '@metal-mate/core';
+import { groupRuns } from '../src/components/FeatureTree.js';
 import {
   type DesignRow,
   benchtopRow,
@@ -100,5 +107,35 @@ describe('expanding a design into parts', () => {
     // the document build would refuse the lot.
     const parts = expandRow(canopyRow()).parts.map((p) => keyOf(p.part!));
     expect(new Set(parts).size).toBe(6);
+  });
+});
+
+describe('the feature list', () => {
+  it('shows a riveted seam as a run of holes, not as 19 rows', () => {
+    // A canopy wall carries four runs of rivets. Listing every hole buries the
+    // two features that actually describe the part.
+    const wall = canopyDocument(DEFAULT_CANOPY).parts.find(
+      (p) => p.parameters.partId === 'CAN-LEFT',
+    )!;
+    const rows = groupRuns(wall.features);
+    expect(rows.map((r) => r.kind)).toEqual([
+      'base-flange',
+      'edge-flange',
+      'cutout',
+      'edge-flange',
+      'cutout',
+    ]);
+    const holes = wall.features.filter((f) => f.kind === 'cutout').length;
+    const counted = rows
+      .filter((r) => r.kind === 'cutout')
+      .reduce((n, r) => n + Number(r.label!.split(' ')[0]), 0);
+    expect(counted).toBe(holes);
+  });
+
+  it('leaves a part with no holes exactly as it is', () => {
+    const roof = canopyDocument(DEFAULT_CANOPY).parts.find(
+      (p) => p.parameters.partId === 'CAN-ROOF',
+    )!;
+    expect(groupRuns(roof.features).map((r) => r.id)).toEqual(roof.features.map((f) => String(f.id)));
   });
 });

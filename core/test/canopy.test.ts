@@ -22,6 +22,7 @@ import { STAINLESS_304, findMaterial } from '../src/materials/material.js';
 import {
   type PlacedPart,
   checkAssembly,
+  placeFoldedPart,
   solveAssembly,
   worldEdge,
 } from '../src/model/assembly.js';
@@ -31,9 +32,12 @@ import {
   CANOPY_TEMPLATE_KIND,
   CanopyParameterError,
   DEFAULT_CANOPY,
+  canopyBodyFor,
   canopyDocument,
+  canopyMeasures,
   canopyPanels,
 } from '../src/templates/canopy.js';
+import { dihedralDeg } from '../src/templates/canopyBody.js';
 
 const T = 1.6;
 const L = 1800;
@@ -97,6 +101,32 @@ function placeAll(params: CanopyParams): {
   return { parts, places: solveAssembly(doc.assembly, parts) };
 }
 
+/**
+ * Every face of every panel, as a plane in assembly space.
+ *
+ * A seam is only closed if the two panels either side of it end up at the angle
+ * the body says, and a lip only carries a deck if it ends up parallel to it one
+ * thickness away. Both are questions about planes, and neither depends on
+ * knowing where the assembly happens to have put the whole thing.
+ */
+function assembledPlanes(params: CanopyParams): Map<string, Frame3> {
+  const { parts, places } = placeAll(params);
+  const out = new Map<string, Frame3>();
+  for (const [id, placed] of parts) {
+    const at = places.get(id)!;
+    for (const face of placeFoldedPart(placed.folded, at).faces) {
+      out.set(`${String(id)}/${String(face.faceId)}`, face.frame);
+    }
+  }
+  return out;
+}
+
+/** Angle between two planes' outward normals, degrees. */
+function betweenDeg(a: Frame3, b: Frame3): number {
+  const c = Math.max(-1, Math.min(1, dot3(a.normal, b.normal)));
+  return (Math.acos(c) * 180) / Math.PI;
+}
+
 beforeAll(async () => {
   await initBooleans();
 });
@@ -146,6 +176,75 @@ describe('the parts it makes', () => {
       // No floor means no bottom lip, and a wall that runs to the tray: only
       // the roof's own half thickness comes off the top.
       expectSize(plateSize({ ...CANOPY, floor: false }, id), [across, H - T / 2 - LIP_RISE]);
+    }
+  });
+
+  it('puts a rivet line down every lip, evenly divided', () => {
+    const doc = canopyDocument(CANOPY);
+    const left = doc.parts.find((p) => p.parameters.partId === 'CAN-LEFT')!;
+    const holes = left.features.filter((f) => f.kind === 'cutout');
+    // Two lips, each with its own run of rivets.
+    const top = holes.filter((h) => h.faceId === faceId('left-top-lip'));
+    const bottom = holes.filter((h) => h.faceId === faceId('left-bottom-lip'));
+    expect(top.length).toBeGreaterThan(2);
+    expect(top.length).toEqual(bottom.length);
+
+    const plate = LIP - SETBACK;
+    const clear = CANOPY.rivet!.diameterMm * 2;
+    // A circle is two vertices a diameter apart, so the centre is their mean.
+    const xs = top.map((h) => (h.loop.verts[0]!.x + h.loop.verts[1]!.x) / 2);
+    const ys = top.map((h) => h.loop.verts[0]!.y);
+
+    // Down the middle of the flat: the only line with the same clearance to the
+    // bend as to the free edge.
+    for (const y of ys) expect(y).toBeCloseTo(plate / 2, 6);
+    // Evenly spaced, at the target pitch or a little under — never over.
+    const gaps = xs.slice(1).map((x, i) => x - xs[i]!);
+    for (const gap of gaps) {
+      expect(gap).toBeCloseTo(gaps[0]!, 6);
+      expect(gap).toBeLessThanOrEqual(CANOPY.rivet!.pitchMm + 1e-9);
+    }
+    expect(gaps[0]).toBeGreaterThan(CANOPY.rivet!.pitchMm * 0.8);
+    // Clear of the mitred ends, measured square to the rake rather than along
+    // the lip — a 45 degree cut is further away than its x offset suggests.
+    expect(Math.min(...xs)).toBeGreaterThanOrEqual(plate / 2 + clear * Math.SQRT2 - 1e-9);
+  });
+
+  it('refuses a lip too shallow for the rivet going through it', () => {
+    // 12 mm of lip leaves 8.4 mm of flat, and a 4.8 mm rivet wants 9.6 mm each
+    // side of centre. Better to say so than to put holes in the radius.
+    expect(() => canopyDocument({ ...CANOPY, lipMm: 12 })).toThrow(CanopyParameterError);
+    expect(() => canopyDocument({ ...CANOPY, lipMm: 12 })).toThrow(
+      /deepen the lip or use a smaller rivet/,
+    );
+    // A smaller rivet wants less lip: 3.2 mm needs 12.8 mm of flat where 4.8
+    // needs 19.2, so an 18 mm lip carries one and not the other.
+    expect(() =>
+      canopyDocument({ ...CANOPY, lipMm: 18, rivet: { diameterMm: 3.2, pitchMm: 80 } }),
+    ).not.toThrow();
+    expect(() => canopyDocument({ ...CANOPY, lipMm: 18 })).toThrow(/deepen the lip/);
+    // ...and no rivets at all is a plain folded lip.
+    const { rivet: _rivet, ...noRivets } = CANOPY;
+    const plain = canopyDocument({ ...noRivets, lipMm: 12 });
+    expect(plain.parts.flatMap((p) => p.features).filter((f) => f.kind === 'cutout')).toEqual([]);
+  });
+
+  it('carries the rivet holes through to the flat pattern', () => {
+    // The holes are on a folded face, not the base one, so they have to survive
+    // the unfold to reach the laser at all.
+    const built = buildDocument(canopyDocument(CANOPY).parts, {
+      machine: { ...GENERIC_2500_40T, bedLengthMm: 3000 },
+    });
+    const wall = built.parts.find((p) => p.part.parameters.partId === 'CAN-LEFT')!;
+    if (!wall.ok) throw new Error('the left wall did not build');
+    const doc = canopyDocument(CANOPY);
+    const wanted = doc.parts
+      .find((p) => p.parameters.partId === 'CAN-LEFT')!
+      .features.filter((f) => f.kind === 'cutout').length;
+    expect(wall.result.flat.profile.inners).toHaveLength(wanted);
+    // Round holes stay round: arcs out to the DXF, never a polygon.
+    for (const inner of wall.result.flat.profile.inners) {
+      expect(inner.verts.some((v) => v.bulge !== 0)).toBe(true);
     }
   });
 
@@ -249,6 +348,89 @@ describe('the box it makes', () => {
     expect(Math.abs(dot3(wall.normal, roof.normal))).toBeCloseTo(0, 6);
   });
 
+  it('stands every wall at the angle the tapered body asks for', () => {
+    // The one test that would catch a wrong mate angle on a tapered body. Six
+    // flat panels either meet at the angles the body states, or they fold
+    // through each other and nothing else says so.
+    const params: CanopyParams = {
+      ...CANOPY,
+      roofDropMm: 200,
+      taperDeg: { leftDeg: 8, rightDeg: 5, frontDeg: 3, rearDeg: 2 },
+    };
+    const body = canopyBodyFor(params);
+    const planes = assembledPlanes(params);
+    const face = (panel: string): Frame3 => planes.get(`can-${panel}/${panel}`)!;
+
+    for (const wall of ['front', 'rear', 'left', 'right'] as const) {
+      for (const deck of ['floor', 'roof'] as const) {
+        // Both normals face out of the body, so the angle between them is the
+        // supplement of the interior angle the body carries.
+        expect(betweenDeg(face(wall), face(deck)), `${wall} to ${deck}`).toBeCloseTo(
+          180 - dihedralDeg(body, wall, deck),
+          5,
+        );
+      }
+    }
+    // Opposite walls leaning by different amounts are not parallel, and that
+    // has to survive the assembly rather than being averaged away.
+    expect(betweenDeg(face('left'), face('right'))).toBeCloseTo(180 - 8 - 5, 5);
+  });
+
+  it('lands each deck on its lips, one thickness off the metal', () => {
+    const params: CanopyParams = {
+      ...CANOPY,
+      roofDropMm: 150,
+      taperDeg: { leftDeg: 7, rightDeg: 7 },
+    };
+    const planes = assembledPlanes(params);
+    for (const wall of ['front', 'rear', 'left', 'right'] as const) {
+      for (const [edge, deck] of [
+        ['top', 'roof'],
+        ['bottom', 'floor'],
+      ] as const) {
+        const lip = planes.get(`can-${wall}/${wall}-${edge}-lip`)!;
+        const on = planes.get(`can-${deck}/${deck}`)!;
+        // A lip that carries a deck is parallel to it, and facing the same way:
+        // the lip's outer face is the one the deck lands on, so its normal
+        // points at the deck exactly as the deck's own points away from the box.
+        expect(betweenDeg(lip, on), `${wall} ${edge} lip`).toBeCloseTo(0, 4);
+        // ...and one thickness away, which is the two sheets in contact.
+        //
+        // Not exactly: bend arcs are drawn at R + K*T so that flat and folded
+        // never need reconciling, and that puts the lip T*(0.5 - K) shy of
+        // where the metal really lands — about a tenth of a millimetre here,
+        // more as the corner opens. The cut part is right; the picture is
+        // optimistic by that much, and the tolerance says so rather than
+        // pretending the model is exact.
+        const gap = Math.abs(dot3(sub3(lip.origin, on.origin), on.normal));
+        expect(gap, `${wall} ${edge} lip standoff`).toBeGreaterThan(T - 0.25);
+        expect(gap, `${wall} ${edge} lip standoff`).toBeLessThan(T + 0.25);
+      }
+    }
+  });
+
+  it('says what a tapered canopy actually measures', () => {
+    // "1800 x 1500 x 900" stops describing the whole canopy the moment it
+    // tapers: it is the footprint and the front. These are the numbers somebody
+    // would put a tape on to check the thing that turns up.
+    const square = canopyMeasures(CANOPY);
+    expect(square.roofWidthFrontMm).toBeCloseTo(W, 6);
+    expect(square.roofWidthRearMm).toBeCloseTo(W, 6);
+    expect(square.rearHeightMm).toBeCloseTo(H, 6);
+
+    const tapered = canopyMeasures({
+      ...CANOPY,
+      roofDropMm: 150,
+      taperDeg: { leftDeg: 10, rightDeg: 10 },
+    });
+    // Both sides in 10 degrees over the rise takes twice that off the roof.
+    expect(tapered.roofWidthFrontMm).toBeCloseTo(W - 2 * H * Math.tan((10 * Math.PI) / 180), 0);
+    // The rear roof is lower, so its walls have leaned in for less of a rise
+    // and it is wider than the front.
+    expect(tapered.roofWidthRearMm).toBeGreaterThan(tapered.roofWidthFrontMm);
+    expect(tapered.rearHeightMm).toBeCloseTo(H - 150, 6);
+  });
+
   it('encloses the outside dimensions it was asked for', () => {
     // Every panel corner, in assembly space. Six panels mated at right angles
     // either bound a box of the size asked for or they fold through each other,
@@ -269,6 +451,155 @@ describe('the box it makes', () => {
     const spans = [span((p) => p.x), span((p) => p.y), span((p) => p.z)].sort((a, b) => a - b);
     const expected = [H - T, W - T, L - T].sort((a, b) => a - b);
     for (const [i, want] of expected.entries()) expect(spans[i]).toBeCloseTo(want, 6);
+  });
+});
+
+describe('the seam inverted onto the roof', () => {
+  const INVERTED: CanopyParams = { ...CANOPY, lipOn: 'roof' };
+  const SIDES = ['front', 'rear', 'left', 'right'] as const;
+
+  /** Every flange label a panel carries, by part number. */
+  function flangesBy(params: CanopyParams): Map<string, string[]> {
+    const out = new Map<string, string[]>();
+    for (const part of canopyDocument(params).parts) {
+      out.set(
+        part.parameters.partId!,
+        part.features.filter((f) => f.kind === 'edge-flange').map((f) => f.label!),
+      );
+    }
+    return out;
+  }
+
+  it('takes the lip off the walls and turns it down off the roof', () => {
+    const walls = flangesBy({ ...CANOPY, floor: false });
+    expect(walls.get('CAN-LEFT')).toEqual(['Left side top lip']);
+    expect(walls.get('CAN-ROOF')).toEqual([]);
+
+    const roof = flangesBy({ ...INVERTED, floor: false });
+    // Nothing left on the wall to fold: the top corner is a bend on the roof.
+    expect(roof.get('CAN-LEFT')).toEqual([]);
+    expect(roof.get('CAN-ROOF')).toEqual([
+      'Roof front return',
+      'Roof rear return',
+      'Roof left return',
+      'Roof right return',
+    ]);
+  });
+
+  it('keeps the wall lip that lands on the floor', () => {
+    // Only the roof seam inverts. A canopy with a floor still stands its walls
+    // on their own bottom lips, and inverting the top must not disturb that.
+    const flanges = flangesBy(INVERTED);
+    expect(flanges.get('CAN-LEFT')).toEqual(['Left side bottom lip']);
+  });
+
+  it('wraps each return down the outside of the wall it meets', () => {
+    // The return lies against the wall's outer face, so the two sheets are face
+    // to face: the return's neutral plane sits one full thickness *outboard* of
+    // the wall's. Signed, not absolute — a sign error here would put the return
+    // inside the box, which is a different canopy that still measures right.
+    const params: CanopyParams = {
+      ...INVERTED,
+      roofDropMm: 150,
+      taperDeg: { leftDeg: 7, rightDeg: 7 },
+    };
+    const planes = assembledPlanes(params);
+    for (const wall of SIDES) {
+      const ret = planes.get(`can-roof/roof-${wall}-lip`)!;
+      const on = planes.get(`can-${wall}/${wall}`)!;
+      // Parallel to the wall and facing the same way out of the box.
+      expect(betweenDeg(ret, on), `${wall} return`).toBeCloseTo(0, 4);
+      // ...one thickness proud of it. Same T*(0.5 - K) slack as the wall lips:
+      // the arcs are drawn at R + K*T so the picture is optimistic by a tenth.
+      const out = dot3(sub3(ret.origin, on.origin), on.normal);
+      expect(out, `${wall} return standoff`).toBeGreaterThan(T - 0.25);
+      expect(out, `${wall} return standoff`).toBeLessThan(T + 0.25);
+    }
+  });
+
+  it('closes to exactly the same box as the seam it replaces', () => {
+    // The inversion moves metal about at every top corner. If the reach past the
+    // body corner is wrong the box closes to a different size, and this is what
+    // says so — measured against the canopy it replaces rather than against a
+    // second derivation of the same numbers.
+    const spansOf = (params: CanopyParams): number[] => {
+      const { parts, places } = placeAll(params);
+      const points = [...parts.entries()].flatMap(([id, placed]) => {
+        const name = [...placed.graph.faces.keys()][0]!;
+        const face = placed.graph.faces.get(name)!;
+        const edge = worldEdge(placed, places.get(id)!, name, [...face.edges.keys()][0]!);
+        return [edge.p0, edge.p1];
+      });
+      const span = (pick: (p: { x: number; y: number; z: number }) => number): number => {
+        const vs = points.map(pick);
+        return Math.max(...vs) - Math.min(...vs);
+      };
+      return [span((p) => p.x), span((p) => p.y), span((p) => p.z)].sort((a, b) => a - b);
+    };
+
+    for (const floor of [true, false]) {
+      const plain = spansOf({ ...CANOPY, floor });
+      const inverted = spansOf({ ...INVERTED, floor });
+      for (const [i, want] of plain.entries()) {
+        expect(inverted[i], `floor=${floor}`).toBeCloseTo(want, 6);
+      }
+    }
+    // ...and with a floor under it, that box is the outside box asked for, one
+    // thickness down to the neutral surfaces. (Without a floor the walls run on
+    // to the outside bottom instead, which is a different and already-tested
+    // number — hence comparing like with like above.)
+    const expected = [H - T, W - T, L - T].sort((a, b) => a - b);
+    const got = spansOf(INVERTED);
+    for (const [i, want] of expected.entries()) expect(got[i]).toBeCloseTo(want, 6);
+  });
+
+  it('moves the rivets off the top corner and onto the roof', () => {
+    const holesOn = (params: CanopyParams, part: string): number =>
+      canopyDocument(params)
+        .parts.find((p) => p.parameters.partId === part)!
+        .features.filter((f) => f.kind === 'cutout').length;
+
+    const plain = { ...CANOPY, floor: false };
+    const inverted = { ...INVERTED, floor: false };
+    // Same seams, same rivet, same count — they have simply changed panel.
+    expect(holesOn(plain, 'CAN-ROOF')).toBe(0);
+    expect(holesOn(inverted, 'CAN-LEFT')).toBe(0);
+    expect(holesOn(inverted, 'CAN-ROOF')).toBe(
+      (['CAN-FRONT', 'CAN-REAR', 'CAN-LEFT', 'CAN-RIGHT'] as const).reduce(
+        (n, p) => n + holesOn(plain, p),
+        0,
+      ),
+    );
+  });
+
+  it('mitres the four returns into a closed frame', () => {
+    // Two returns meet at every corner of one plate, so each is cut to half that
+    // corner. On a square roof that is the familiar 45 at all eight ends.
+    const roof = canopyDocument({ ...INVERTED, floor: false })
+      .parts.find((p) => p.parameters.partId === 'CAN-ROOF')!;
+    for (const f of roof.features) {
+      if (f.kind !== 'edge-flange') continue;
+      expect(f.mitreStartDeg, `${f.label!} start`).toBeCloseTo(45, 9);
+      expect(f.mitreEndDeg, `${f.label!} end`).toBeCloseTo(45, 9);
+    }
+  });
+
+  it('refuses a return too shallow for the bend that makes it', () => {
+    // The same rule as a wall lip, and it has to survive the inversion: a lip
+    // inside the setback has no flat left to fold.
+    expect(() => canopyDocument({ ...INVERTED, lipMm: 2 })).toThrow(CanopyParameterError);
+    expect(() => canopyDocument({ ...INVERTED, lipMm: 25 })).not.toThrow();
+  });
+
+  it('goes through the pipeline and out to DXF like any other canopy', () => {
+    const built = buildDocument(canopyDocument({ ...INVERTED, floor: false }).parts, {
+      machine: { ...GENERIC_2500_40T, bedLengthMm: 3000 },
+    });
+    expect(built.problems).toEqual([]);
+    expect(built.exportAllowed).toBe(true);
+    // Four bends on the roof now, none on the walls — the mirror of the default.
+    const bends = built.parts.map((p) => (p.ok ? p.result.flat.bendLines.length : -1));
+    expect(bends).toEqual([0, 0, 0, 0, 4]);
   });
 });
 
