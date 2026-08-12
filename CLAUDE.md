@@ -9,6 +9,64 @@ Read this before changing anything in `core/`.
 
 ---
 
+## Who you are writing for
+
+Neither of the two users is a programmer. One is a cabinet maker. They know
+sheet metal, benchtops, press brakes and what a laser will accept far better
+than you do — and they know nothing about git, and have no reason to.
+
+So: **explain in the language of the workshop, not the language of the repo.**
+
+- Lead with what changed about the *tool* — what it now does, or now gets
+  right. The mechanics of how the change got there are usually not worth a
+  sentence.
+- Never ask them to perform a git operation. Merging, tagging, branching and
+  building are yours to do. If a step needs doing, do it and say what you did.
+- Ask them only what they alone can answer: die racks, weld gaps, corner
+  radii, what the laser accepts, how the shop actually works. Those questions
+  are gold. Questions about branching strategy are noise.
+- When something goes wrong, say what it means for the part or the program,
+  then what you're doing about it. "The tag points at the wrong commit" means
+  nothing. "The download page says 0.1.7 but the file inside is 0.1.8" means
+  something.
+- If a technical term genuinely cannot be avoided, gloss it once in the same
+  sentence, in a clause, and move on.
+
+The glossary below is for translating *out*, not for teaching them the words.
+
+| What it is called here | What it actually means |
+| --- | --- |
+| repository / repo | The whole project — every file, plus its history |
+| `main` | The real, current version of the project |
+| branch | A side copy where work happens before it's made real |
+| commit | One saved change, with a note about why |
+| merge | Move finished work from a side copy onto the real one |
+| pull request (PR) | Work on a side copy, offered up to be merged |
+| tag | A permanent bookmark on one saved change, e.g. `v0.1.8` |
+| release | The tag plus the installers built from it |
+| CI / workflow / Actions | The robot that builds and tests, on GitHub's machines |
+| the Pages build | The try-it-in-a-browser version, rebuilt on every merge |
+
+---
+
+## Cutting a release
+
+The version number lives in three files that must move together:
+`app/src-tauri/tauri.conf.json`, `app/src-tauri/Cargo.toml`, and the
+`metal-mate` entry in `app/src-tauri/Cargo.lock`.
+
+Change that lockfile entry *by line, not by find-and-replace* — `crypto-common`
+sat at `0.1.7` too, and a blind replace takes a dependency with it.
+
+**Merge the bump to `main` before building.** Publishing a draft release
+through the GitHub web UI submits its own target branch, which overwrites the
+`target_commitish` the workflow passes. The tag is therefore minted at `main`'s
+head no matter which branch the build ran from. v0.1.7 was cut from a branch
+and its tag landed on the v0.1.6 commit — the installers were fine, the tag
+pointed at source that didn't match them. Merging first is what prevents that.
+
+---
+
 ## Invariants
 
 These are load-bearing. Breaking one is a design change, not a bug fix; if you

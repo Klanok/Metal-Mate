@@ -118,6 +118,19 @@ version somebody already has is how two people end up with different software
 under one number — and refuses to start if more than one draft exists for the
 tag, since the installers would be split across them.
 
+**Bump the version on `main` before building, not on a branch.** Publishing a
+draft through the GitHub web UI submits its own target branch, overwriting the
+`target_commitish` the workflow passes, so the tag is minted at `main`'s head
+whichever branch produced the installers. v0.1.7 was built from a branch and
+its tag landed on the v0.1.6 commit: the installers were correct, the tag
+pointed at source that did not match them. The guard rails above cannot catch
+this one, because from the workflow's side nothing went wrong.
+
+The version lives in three files and they move together — `tauri.conf.json`,
+`Cargo.toml`, and the `metal-mate` entry in `Cargo.lock`. Edit that last one by
+line: `crypto-common` also sits at `0.1.7`, so a find-and-replace across the
+lockfile silently changes a dependency.
+
 > The installers are **not code signed**, because a certificate costs real
 > money and there are two users. Windows SmartScreen warns on first run —
 > *More info* then *Run anyway*. macOS needs right-click then *Open* the first
