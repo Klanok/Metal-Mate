@@ -889,6 +889,39 @@ describe('canopy doors', () => {
     );
   });
 
+  it('sits centred along its wall, not slid off the end of it', () => {
+    // The axis the other checks are blind to. How far the door stands off its
+    // wall and how far up it sits are both unchanged by sliding it along the
+    // wall, so a door displaced by the whole length of the canopy passed every
+    // test in this file while being visibly adrift in the 3D view.
+    const leaning: CanopyParams = {
+      ...CANOPY,
+      taperDeg: { leftDeg: 5, rightDeg: 5 },
+      doors: [{ wall: 'left' }, { wall: 'right' }, { wall: 'rear' }],
+    };
+    const { parts, places } = placeAll(leaning);
+    for (const wall of ['left', 'right', 'rear'] as const) {
+      const wk = partId(`CAN-${wall.toUpperCase()}`);
+      const dk = partId(`CAN-${wall.toUpperCase()}-DOOR`);
+      const bottom = worldEdge(parts.get(wk)!, places.get(wk)!, faceId(wall), 'bottom');
+      const hinge = worldEdge(parts.get(dk)!, places.get(dk)!, faceId(`${wall}-door`), 'top');
+      const length = Math.hypot(
+        bottom.p1.x - bottom.p0.x,
+        bottom.p1.y - bottom.p0.y,
+        bottom.p1.z - bottom.p0.z,
+      );
+      const [near, far] = [hinge.p0, hinge.p1]
+        .map((p) => dot3(sub3(p, bottom.p0), bottom.dir))
+        .sort((a, b) => a - b) as [number, number];
+
+      // Inside the wall at both ends, and the same distance in at each — equal
+      // jambs mean a centred door, whatever shape the wall is.
+      expect(near).toBeGreaterThan(0);
+      expect(far).toBeLessThan(length);
+      expect(near).toBeCloseTo(length - far, 0);
+    }
+  });
+
   it('refuses margins that leave no opening', () => {
     expect(() => canopyDocument({ ...CANOPY, doors: [{ wall: 'rear', jambMm: 2000 }] })).toThrow(
       CanopyParameterError,

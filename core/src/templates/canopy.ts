@@ -249,7 +249,14 @@ export interface CanopyDoor {
   readonly openDeg?: number;
 }
 
-const DOOR_DEFAULTS = {
+/**
+ * What a door is unless the caller says otherwise.
+ *
+ * Exported because the UI shows these numbers in its own fields, and a panel
+ * with its own copy of them drifts: it displayed 60 mm jambs for a part that
+ * was built with 70, which is a lie about a dimension.
+ */
+export const DOOR_DEFAULTS = {
   // A full-width door is the whole point of this construction: the reference
   // canopies make a virtue of there being no obstruction along the top edge of
   // the tub. So the metal left round the opening is a frame — a top rail, a
@@ -361,16 +368,21 @@ function apertureFor(shape: PanelShape, door: DoorSpec): Aperture {
     throw new CanopyParameterError(`the ${door.wall} wall has no top and bottom edge to hang a door off`);
   }
   const from = shape.at[bottom]!;
-  const dir = normalize(sub(shape.at[(bottom + 1) % shape.at.length]!, from));
+  const to = shape.at[(bottom + 1) % shape.at.length]!;
+  const dir = normalize(sub(to, from));
   const into = leftNormal(dir);
-  // The start of the blank's top edge: the end of the hinge the mate anchors on.
-  const delta = sub(blank[top]!, from);
+  // Measured from the FAR end of the wall's bottom edge, because that is the end
+  // the mate anchors on: it lines the two edges up antiparallel, so the guest's
+  // p0 meets the target's p1. Measuring from the near end instead slides the
+  // door along its own wall by the length of the wall, which is invisible to any
+  // check of how far the door stands off the wall or how far up it sits.
+  const delta = sub(blank[top]!, to);
 
   return {
     opening,
     blank,
     cornerRadiusMm: door.cornerRadiusMm,
-    alongMm: dot(delta, dir),
+    alongMm: -dot(delta, dir),
     intoMm: dot(delta, into),
   };
 }

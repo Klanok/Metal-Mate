@@ -14,7 +14,7 @@
  */
 
 import type { CanopyDoor, CanopyMeasures, CanopyParams, DoorWall, Material } from '@metal-mate/core';
-import { DOOR_WALLS, canopyMeasures, canopyPanels } from '@metal-mate/core';
+import { DOOR_DEFAULTS, DOOR_WALLS, canopyMeasures, canopyPanels } from '@metal-mate/core';
 import { NumberField } from './NumberField.js';
 
 const WALL_LABELS: Record<DoorWall, string> = {
@@ -217,10 +217,10 @@ export function CanopyPanel({ params, materials, onChange }: CanopyPanelProps): 
       <fieldset data-testid="canopy-doors">
         <legend>Doors</legend>
         <p className="muted">
-          An opening is a hole in the wall and nothing more. A lip cannot be folded around it — a
-          brake folds along a line that runs off both ends of the blank, so a return around a hole
-          needs press tooling this shop has not got. The <strong>door</strong> does get a return on
-          all four edges, because those are four straight bends off the edge of a rectangle.
+          The opening itself gets no lip. A brake folds along a line that runs off both ends of the
+          blank, so a return around a hole needs press tooling this shop has not got. The{' '}
+          <strong>door</strong> does get a return on all four edges, because those are four straight
+          bends off the edge of a blank.
         </p>
         {DOOR_WALLS.map((wall) => {
           const door = (params.doors ?? []).find((d) => d.wall === wall);
@@ -240,43 +240,44 @@ export function CanopyPanel({ params, materials, onChange }: CanopyPanelProps): 
           <>
             <NumberField
               label="Head"
-              value={firstDoor(params).headMm ?? 60}
+              value={firstDoor(params).headMm ?? DOOR_DEFAULTS.headMm}
               step={5}
               onChange={(v) => patch({ doors: patchDoors(params, { headMm: v }) })}
             />
             <NumberField
               label="Sill"
-              value={firstDoor(params).sillMm ?? 60}
+              value={firstDoor(params).sillMm ?? DOOR_DEFAULTS.sillMm}
               step={5}
               onChange={(v) => patch({ doors: patchDoors(params, { sillMm: v }) })}
             />
             <NumberField
               label="Jamb"
-              value={firstDoor(params).jambMm ?? 60}
+              value={firstDoor(params).jambMm ?? DOOR_DEFAULTS.jambMm}
               step={5}
               onChange={(v) => patch({ doors: patchDoors(params, { jambMm: v }) })}
             />
             <NumberField
               label="Corner radius"
-              value={firstDoor(params).cornerRadiusMm ?? 20}
+              value={firstDoor(params).cornerRadiusMm ?? DOOR_DEFAULTS.cornerRadiusMm}
               step={1}
               onChange={(v) => patch({ doors: patchDoors(params, { cornerRadiusMm: v }) })}
             />
             <NumberField
               label="Door lap"
-              value={firstDoor(params).lapMm ?? 20}
+              value={firstDoor(params).lapMm ?? DOOR_DEFAULTS.lapMm}
               step={1}
               onChange={(v) => patch({ doors: patchDoors(params, { lapMm: v }) })}
             />
             <NumberField
               label="Door return"
-              value={firstDoor(params).returnMm ?? 20}
+              value={firstDoor(params).returnMm ?? DOOR_DEFAULTS.returnMm}
               step={1}
               onChange={(v) => patch({ doors: patchDoors(params, { returnMm: v }) })}
             />
             <NumberField
               label="Swing open"
-              value={firstDoor(params).openDeg ?? 0}
+              value={firstDoor(params).openDeg ?? DOOR_DEFAULTS.openDeg}
+              unit="°"
               step={5}
               onChange={(v) => patch({ doors: patchDoors(params, { openDeg: v }) })}
             />
