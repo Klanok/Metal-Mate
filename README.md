@@ -113,6 +113,13 @@ git tag v0.1.0 && git push origin v0.1.0
 The Actions tab can also run the release workflow by hand, which is the way to
 produce a build to test without minting a version number.
 
+**Running it by hand requires the `tag` input, and its default is a trap.** The
+input defaults to `v0.0.0-dev`, so a dispatch that leaves it blank does not fail
+— it quietly builds a draft called `v0.0.0-dev`, and the version you meant to cut
+never appears on the Releases page. Tag pushes take the version from the ref and
+are immune; only hand-runs can miss it. If a release you asked for is not on the
+Releases page, look for a `v0.0.0-dev` draft before looking anywhere else.
+
 The workflow refuses to build a tag that is already published — re-cutting a
 version somebody already has is how two people end up with different software
 under one number — and refuses to start if more than one draft exists for the
