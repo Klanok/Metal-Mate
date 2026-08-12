@@ -34,7 +34,7 @@
 import { type Feature, type GrainDirection, type Part } from '../features/types.js';
 import { outsideSetback } from '../materials/allowance.js';
 import { type Vec2, v2 } from '../geometry/vec2.js';
-import { circle, polygon } from '../geometry/loop.js';
+import { circle, containsPoint, polygon, roundedRect } from '../geometry/loop.js';
 import { profile } from '../geometry/profile.js';
 import {
   type Vec3,
@@ -129,6 +129,14 @@ export interface CanopyParams {
    * rather than to taste.
    */
   readonly rivet?: RivetSpec;
+  /**
+   * Door openings, at most one per wall.
+   *
+   * A canopy with none is a sealed box, which is what this template made before
+   * doors existed and is still what you want if the thing is a toolbox rather
+   * than something you climb into.
+   */
+  readonly doors?: readonly CanopyDoor[];
   readonly grain?: GrainDirection;
 }
 
@@ -187,6 +195,222 @@ export const DEFAULT_CANOPY: CanopyParams = {
   rivet: { diameterMm: 4.8, pitchMm: 100 },
   grain: 'length',
 };
+
+/**
+ * The walls a door can go in.
+ *
+ * Not the front: it faces the back of the cab, where there is neither room to
+ * swing a door nor anything to reach it from.
+ */
+export const DOOR_WALLS = ['left', 'right', 'rear'] as const;
+export type DoorWall = (typeof DOOR_WALLS)[number];
+
+/**
+ * A door opening in one wall, and the door that closes it.
+ *
+ * The opening is a hole in the wall panel and nothing more. A lip cannot be
+ * folded around it: a brake folds along a line that runs off both ends of the
+ * blank, so a return around a hole is a pressing operation and needs tooling a
+ * brake shop has not got. The production canopies this is modelled on get their
+ * apertures pressed; the equivalent here is a frame of folded sections riveted
+ * around the opening, which is a separate job from this one.
+ *
+ * What the door itself does have is a return folded back on all four edges —
+ * four straight bends off the edge of a rectangular blank, mitred at the
+ * corners exactly as the body lips are. That much a brake will do.
+ */
+export interface CanopyDoor {
+  readonly wall: DoorWall;
+  /** Metal left above the opening, mm. */
+  readonly headMm?: number;
+  /** Metal left below the opening, mm. */
+  readonly sillMm?: number;
+  /** Metal left at each end of the opening, mm. */
+  readonly jambMm?: number;
+  /**
+   * Corner radius of the opening, mm.
+   *
+   * Not decoration. A square internal corner in a wall panel is where a crack
+   * starts, and this one spends its life being shaken on a ute.
+   */
+  readonly cornerRadiusMm?: number;
+  /** How far the door laps over the frame all round, mm. */
+  readonly lapMm?: number;
+  /** Depth of the return folded back around the door, mm. */
+  readonly returnMm?: number;
+}
+
+const DOOR_DEFAULTS = {
+  headMm: 60,
+  sillMm: 60,
+  jambMm: 60,
+  cornerRadiusMm: 20,
+  lapMm: 20,
+  returnMm: 20,
+} as const;
+
+/** One door's numbers with the defaults filled in. */
+interface DoorSpec {
+  readonly wall: DoorWall;
+  readonly headMm: number;
+  readonly sillMm: number;
+  readonly jambMm: number;
+  readonly cornerRadiusMm: number;
+  readonly lapMm: number;
+  readonly returnMm: number;
+}
+
+function doorSpec(door: CanopyDoor): DoorSpec {
+  return { ...DOOR_DEFAULTS, ...strip(door), wall: door.wall };
+}
+
+/** Drop keys whose value is undefined, so a spread does not bury a default. */
+function strip<T extends object>(o: T): Partial<T> {
+  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Partial<T>;
+}
+
+/** The door in one wall, if this parameter set puts one there. */
+function doorFor(params: CanopyParams, panel: CanopyPanel): DoorSpec | undefined {
+  const found = (params.doors ?? []).filter((d) => d.wall === panel);
+  if (found.length > 1) {
+    throw new CanopyParameterError(`the ${panel} wall has ${found.length} doors; it can have one`);
+  }
+  return found[0] === undefined ? undefined : doorSpec(found[0]);
+}
+
+/** An opening in a wall, in that wall's own flat coordinates. */
+interface Aperture {
+  readonly x: number;
+  readonly y: number;
+  readonly widthMm: number;
+  readonly heightMm: number;
+  readonly cornerRadiusMm: number;
+}
+
+/**
+ * Where one door's opening sits in its wall.
+ *
+ * The margins are measured from the wall's bounding box rather than from its
+ * sloping edges, so on a tapered wall the head margin is the tightest point
+ * rather than the average. Whether that leaves the opening inside the metal is
+ * not assumed — every corner is checked against the actual outline below.
+ */
+function apertureFor(shape: PanelShape, door: DoorSpec): Aperture {
+  const width = Math.max(...shape.at.map((p) => p.x));
+  const height = Math.max(...shape.at.map((p) => p.y));
+  const w = width - 2 * door.jambMm;
+  const h = height - door.headMm - door.sillMm;
+  if (w <= 0 || h <= 0) {
+    throw new CanopyParameterError(
+      `the ${door.wall} door's margins leave no opening: a ${width.toFixed(0)} x ${height.toFixed(0)} mm wall ` +
+        `less ${door.jambMm} mm jambs and ${door.headMm}/${door.sillMm} mm head and sill`,
+    );
+  }
+  const r = Math.min(door.cornerRadiusMm, w / 2, h / 2);
+  const at: Aperture = {
+    x: door.jambMm,
+    y: door.sillMm,
+    widthMm: w,
+    heightMm: h,
+    cornerRadiusMm: r,
+  };
+
+  // A tapered wall is a trapezium, so a rectangle inset from its bounding box
+  // can still poke out through a sloping edge. Say so rather than exporting a
+  // wall with a hole in its outline.
+  const outline = polygon([...shape.at]);
+  const corners = [
+    v2(at.x, at.y),
+    v2(at.x + w, at.y),
+    v2(at.x + w, at.y + h),
+    v2(at.x, at.y + h),
+  ];
+  for (const p of corners) {
+    if (!containsPoint(outline, p)) {
+      throw new CanopyParameterError(
+        `the ${door.wall} door's opening reaches outside the wall — the wall leans in and the margins are ` +
+          'measured from its widest point, so the head or a jamb needs to grow',
+      );
+    }
+  }
+  return at;
+}
+
+function apertureLoop(a: Aperture): ReturnType<typeof roundedRect> {
+  return roundedRect(a.x, a.y, a.widthMm, a.heightMm, a.cornerRadiusMm);
+}
+
+/** The four edges of a door blank, counter-clockwise from the bottom left. */
+const DOOR_EDGES = ['bottom', 'hinge', 'top', 'latch'] as const;
+
+/**
+ * One door: a rectangular blank with a return folded back on all four edges.
+ *
+ * The blank laps the opening by `lapMm` all round, so it covers the aperture
+ * and lands on the frame rather than dropping through it. Every bend runs the
+ * full width of the blank and off both ends, which is the only kind a brake can
+ * make, and the ends are mitred 45 so the four returns close on each other at
+ * the corners instead of overlapping.
+ */
+function doorPart(params: CanopyParams, door: DoorSpec, aperture: Aperture): Part {
+  const w = aperture.widthMm + 2 * door.lapMm;
+  const h = aperture.heightMm + 2 * door.lapMm;
+  const at = [v2(0, 0), v2(w, 0), v2(w, h), v2(0, h)];
+  const edges: Record<string, DirectedEdge> = {};
+  DOOR_EDGES.forEach((name, i) => {
+    edges[name] = { p0: at[i]!, p1: at[(i + 1) % at.length]! };
+  });
+
+  const setback = outsideSetback(90, params.bendRadiusMm, params.thicknessMm);
+  const plate = door.returnMm - setback;
+  if (plate <= 0) {
+    throw new CanopyParameterError(
+      `a ${door.returnMm} mm return on the ${door.wall} door is inside the ${setback.toFixed(2)} mm the bend ` +
+        'itself takes, so there is no flat to fold',
+    );
+  }
+
+  const returns = DOOR_EDGES.map((name): Feature => ({
+    kind: 'edge-flange',
+    id: featureId(`${door.wall}-door-${name}-return`),
+    edge: { faceId: faceId(`${door.wall}-door`), edgeName: name },
+    lengthMm: plate,
+    angleDeg: 90,
+    // Away from the outward face, so the return points back at the canopy and
+    // the door presents a clean skin. Same convention as the body lips.
+    direction: 'down',
+    insideRadiusMm: params.bendRadiusMm,
+    mitreStartDeg: 45,
+    mitreEndDeg: 45,
+    label: `${PANEL_LABELS[door.wall]} door ${name} return`,
+  }));
+
+  return {
+    parameters: {
+      name: `${params.name} ${PANEL_LABELS[door.wall].toLowerCase()} door`,
+      materialId: params.materialId,
+      thicknessMm: params.thicknessMm,
+      grain: params.grain ?? 'length',
+      partId: doorPartNumber(params, door.wall),
+      ...(params.revision !== undefined ? { revision: params.revision } : {}),
+    },
+    features: [
+      {
+        kind: 'base-flange',
+        id: featureId(`${door.wall}-door`),
+        profile: profile(polygon(at)),
+        edges,
+        label: `${PANEL_LABELS[door.wall]} door`,
+      },
+      ...returns,
+    ],
+    template: { kind: CANOPY_TEMPLATE_KIND, params },
+  };
+}
+
+function doorPartNumber(params: CanopyParams, wall: DoorWall): string {
+  return `${params.partPrefix ?? 'CAN'}-${wall.toUpperCase()}-DOOR`;
+}
 
 export class CanopyParameterError extends Error {
   constructor(message: string) {
@@ -250,6 +474,16 @@ export function canopyDocument(params: CanopyParams): TemplateDocument {
 
   const parts = canopyPanels(params).map((panel) => panelPart(body, params, panel, shapes.get(panel)!));
 
+  // Doors are parts in their own right, made from their own blanks. They are
+  // added after the panels so the body still reads floor-first down the parts
+  // list, which is the order it gets built in.
+  const doors = DOOR_WALLS.flatMap((wall) => {
+    const door = doorFor(params, wall);
+    if (door === undefined) return [];
+    return [{ door, aperture: apertureFor(shapes.get(wall)!, door) }];
+  });
+  parts.push(...doors.map(({ door, aperture }) => doorPart(params, door, aperture)));
+
   // Mate tree. Everything hangs off one panel: the floor when there is one,
   // otherwise the roof, because a canopy that sits on the tray has no floor to
   // hang off and the roof is what ties the four walls together.
@@ -280,6 +514,25 @@ export function canopyDocument(params: CanopyParams): TemplateDocument {
         'Roof onto Left side',
       ),
     );
+  }
+
+  // Each door hangs on its own wall: same plane, lifted one thickness so it
+  // lies on the outside skin rather than through it, slid up off the wall's
+  // bottom edge to sit over the opening. Every number here is stated rather
+  // than solved for, the same as every other mate.
+  for (const { door, aperture } of doors) {
+    mates.push({
+      id: `${door.wall}-door`,
+      part: partId(doorPartNumber(params, door.wall)),
+      edge: { faceId: faceId(`${door.wall}-door`), edgeName: 'bottom' },
+      to: key(params, door.wall),
+      toEdge: { faceId: panelFaceId(door.wall), edgeName: 'bottom' },
+      angleDeg: 0,
+      offsetMm: aperture.x - door.lapMm,
+      standoffMm: params.thicknessMm,
+      beyondMm: -(aperture.y - door.lapMm),
+      label: `${PANEL_LABELS[door.wall]} door onto ${PANEL_LABELS[door.wall]}`,
+    });
   }
 
   return { parts, assembly: { rootPartId: key(params, root), mates } };
@@ -623,6 +876,20 @@ function panelPart(
     ];
   });
 
+  const door = doorFor(params, panel);
+  const aperture: Feature[] =
+    door === undefined
+      ? []
+      : [
+          {
+            kind: 'cutout',
+            id: featureId(`${panel}-door-opening`),
+            faceId: panelFaceId(panel),
+            loop: apertureLoop(apertureFor(shape, door)),
+            label: `${PANEL_LABELS[panel]} door opening`,
+          },
+        ];
+
   return {
     parameters: {
       name: `${params.name} ${PANEL_LABELS[panel].toLowerCase()}`,
@@ -640,6 +907,7 @@ function panelPart(
         edges,
         label: PANEL_LABELS[panel],
       },
+      ...aperture,
       ...lipFeatures,
     ],
     template: { kind: CANOPY_TEMPLATE_KIND, params },

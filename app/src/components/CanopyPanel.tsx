@@ -13,9 +13,44 @@
  * clean-looking form.
  */
 
-import type { CanopyMeasures, CanopyParams, Material } from '@metal-mate/core';
-import { canopyMeasures, canopyPanels } from '@metal-mate/core';
+import type { CanopyDoor, CanopyMeasures, CanopyParams, DoorWall, Material } from '@metal-mate/core';
+import { DOOR_WALLS, canopyMeasures, canopyPanels } from '@metal-mate/core';
 import { NumberField } from './NumberField.js';
+
+const WALL_LABELS: Record<DoorWall, string> = {
+  left: 'Left side',
+  right: 'Right side',
+  rear: 'Rear',
+};
+
+/**
+ * Add or remove one wall's door, keeping the others as they are.
+ *
+ * A new door copies the numbers off whatever door already exists, so ticking a
+ * second side gives you the pair you just set up rather than the defaults.
+ */
+function setDoor(params: CanopyParams, wall: DoorWall, on: boolean): CanopyDoor[] {
+  const doors = (params.doors ?? []).filter((d) => d.wall !== wall);
+  if (!on) return doors;
+  const like = params.doors?.[0];
+  return [...doors, like === undefined ? { wall } : { ...like, wall }];
+}
+
+/**
+ * The numbers shown in the shared fields, taken from the first door.
+ *
+ * The core allows every door its own margins; this panel deliberately does not,
+ * because three sets of six numbers is a form nobody fills in correctly and a
+ * canopy whose left door is a different size from its right one is a mistake
+ * far more often than it is a design.
+ */
+function firstDoor(params: CanopyParams): CanopyDoor {
+  return params.doors?.[0] ?? { wall: 'left' };
+}
+
+function patchDoors(params: CanopyParams, next: Partial<CanopyDoor>): CanopyDoor[] {
+  return (params.doors ?? []).map((d) => ({ ...d, ...next }));
+}
 
 /** Drop the rivet spec entirely rather than setting it undefined. */
 function withoutRivets(params: CanopyParams): CanopyParams {
@@ -176,6 +211,76 @@ export function CanopyPanel({ params, materials, onChange }: CanopyPanelProps): 
               <dd>{measures.rearHeightMm.toFixed(0)} mm</dd>
             </div>
           </dl>
+        )}
+      </fieldset>
+
+      <fieldset data-testid="canopy-doors">
+        <legend>Doors</legend>
+        <p className="muted">
+          An opening is a hole in the wall and nothing more. A lip cannot be folded around it — a
+          brake folds along a line that runs off both ends of the blank, so a return around a hole
+          needs press tooling this shop has not got. The <strong>door</strong> does get a return on
+          all four edges, because those are four straight bends off the edge of a rectangle.
+        </p>
+        {DOOR_WALLS.map((wall) => {
+          const door = (params.doors ?? []).find((d) => d.wall === wall);
+          return (
+            <label className="field toggle" key={wall}>
+              <input
+                type="checkbox"
+                data-testid={`canopy-door-${wall}`}
+                checked={door !== undefined}
+                onChange={(e) => patch({ doors: setDoor(params, wall, e.target.checked) })}
+              />
+              <span>{WALL_LABELS[wall]}</span>
+            </label>
+          );
+        })}
+        {(params.doors ?? []).length > 0 && (
+          <>
+            <NumberField
+              label="Head"
+              value={firstDoor(params).headMm ?? 60}
+              step={5}
+              onChange={(v) => patch({ doors: patchDoors(params, { headMm: v }) })}
+            />
+            <NumberField
+              label="Sill"
+              value={firstDoor(params).sillMm ?? 60}
+              step={5}
+              onChange={(v) => patch({ doors: patchDoors(params, { sillMm: v }) })}
+            />
+            <NumberField
+              label="Jamb"
+              value={firstDoor(params).jambMm ?? 60}
+              step={5}
+              onChange={(v) => patch({ doors: patchDoors(params, { jambMm: v }) })}
+            />
+            <NumberField
+              label="Corner radius"
+              value={firstDoor(params).cornerRadiusMm ?? 20}
+              step={1}
+              onChange={(v) => patch({ doors: patchDoors(params, { cornerRadiusMm: v }) })}
+            />
+            <NumberField
+              label="Door lap"
+              value={firstDoor(params).lapMm ?? 20}
+              step={1}
+              onChange={(v) => patch({ doors: patchDoors(params, { lapMm: v }) })}
+            />
+            <NumberField
+              label="Door return"
+              value={firstDoor(params).returnMm ?? 20}
+              step={1}
+              onChange={(v) => patch({ doors: patchDoors(params, { returnMm: v }) })}
+            />
+            <p className="muted" data-testid="canopy-door-note">
+              Head, sill and jamb are the metal left around the opening — that strip is all that
+              holds the wall together once the hole is cut, and on a full-width door it is doing the
+              work a frame would. The corner radius is not decoration: a square internal corner is
+              where a crack starts, and this one spends its life being shaken on a ute.
+            </p>
+          </>
         )}
       </fieldset>
 

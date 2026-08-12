@@ -278,6 +278,48 @@ test.describe('the canopy template', () => {
     await expect(page.getByTestId('cut-list-totals')).toContainText('7');
   });
 
+  test('cuts a door opening and adds the door as a seventh part', async ({ page }) => {
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
+    await page.getByTestId('add-canopy').click();
+
+    const design = page.getByTestId('parts-panel').locator('.design').last();
+    await expect(design.locator('.panel-row')).toHaveCount(6);
+    // The margin fields only mean something once there is an opening to margin.
+    await expect(page.getByTestId('canopy-door-note')).toHaveCount(0);
+
+    await page.getByTestId('canopy-door-left').check();
+    await expect(design.locator('.panel-row')).toHaveCount(7);
+    await expect(design).toContainText('CAN-LEFT-DOOR');
+    await expect(page.getByTestId('canopy-door-note')).toBeVisible();
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export');
+
+    // The door is four bends off the edges of its own blank.
+    await design.locator('.panel-row', { hasText: 'CAN-LEFT-DOOR' }).locator('button').first().click();
+    await expect(page.getByTestId('bend-table').locator('tbody tr')).toHaveCount(4);
+
+    // Both sides, then back to none.
+    await page.getByTestId('canopy-door-right').check();
+    await expect(design.locator('.panel-row')).toHaveCount(8);
+    await page.getByTestId('canopy-door-left').uncheck();
+    await page.getByTestId('canopy-door-right').uncheck();
+    await expect(design.locator('.panel-row')).toHaveCount(6);
+  });
+
+  test('refuses margins that leave no opening, rather than drawing nonsense', async ({ page }) => {
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
+    await page.getByTestId('add-canopy').click();
+    await page.getByTestId('canopy-door-rear').check();
+
+    const jamb = page
+      .getByTestId('canopy-panel')
+      .locator('.field.number', { hasText: 'Jamb' })
+      .locator('input');
+    await jamb.fill('2000');
+    await expect(page.getByTestId('parts-panel')).toContainText('no opening');
+  });
+
   test('folds a lip on every wall, and takes it off again at zero', async ({ page }) => {
     await page.goto(url, { waitUntil: 'networkidle' });
     await expect(page.getByTestId('verdict')).toContainText('Ready to export', { timeout: 20_000 });
