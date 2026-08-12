@@ -5,6 +5,7 @@ import {
   bounds,
   bulgeForAngle,
   circle,
+  filletPolygon,
   isCCW,
   linearise,
   perimeter,
@@ -14,6 +15,7 @@ import {
   roundedRect,
   signedArea,
 } from '../src/geometry/loop.js';
+import { v2 } from '../src/geometry/vec2.js';
 import { profile, profileArea, profileCutLength } from '../src/geometry/profile.js';
 import {
   IDENTITY,
@@ -161,5 +163,54 @@ describe('directed boundary edges', () => {
 
   it('rejects an edge that is not on the boundary', () => {
     expect(isDirectedEdgeOfLoop(r, { p0: { x: 0, y: 10 }, p1: { x: 100, y: 10 } })).toBe(false);
+  });
+});
+
+describe('filletPolygon', () => {
+  it('rounds a square exactly as roundedRect does', () => {
+    const square = [v2(0, 0), v2(100, 0), v2(100, 100), v2(0, 100)];
+    const got = filletPolygon(square, 10);
+    const want = roundedRect(0, 0, 100, 100, 10);
+    expect(got.verts).toHaveLength(want.verts.length);
+    // Same eight vertices, though the two may start at different corners.
+    for (const w of want.verts) {
+      expect(
+        got.verts.some(
+          (g) =>
+            Math.abs(g.x - w.x) < 1e-9 && Math.abs(g.y - w.y) < 1e-9 && Math.abs(g.bulge - w.bulge) < 1e-9,
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it('fits the radius to a corner that is not a right angle', () => {
+    // A trapezium, which is what a wall that leans in gives.
+    const trapezium = [v2(0, 0), v2(100, 0), v2(80, 60), v2(20, 60)];
+    const got = filletPolygon(trapezium, 5);
+    expect(got.verts).toHaveLength(8);
+    // A corner turning through less than a right angle takes a gentler arc, so
+    // its bulge is smaller than the quarter-turn tan(pi/8).
+    const quarter = Math.tan(Math.PI / 8);
+    const bulges = got.verts.map((v) => v.bulge).filter((b) => Math.abs(b) > 1e-12);
+    expect(bulges).toHaveLength(4);
+    expect(Math.min(...bulges)).toBeLessThan(quarter);
+    expect(Math.max(...bulges)).toBeGreaterThan(quarter);
+  });
+
+  it('shrinks rather than self-intersecting when the radius will not fit', () => {
+    const thin = [v2(0, 0), v2(40, 0), v2(40, 6), v2(0, 6)];
+    const got = filletPolygon(thin, 50);
+    // Every vertex still inside the original box, so nothing crossed over.
+    for (const v of got.verts) {
+      expect(v.x).toBeGreaterThanOrEqual(-1e-9);
+      expect(v.x).toBeLessThanOrEqual(40 + 1e-9);
+      expect(v.y).toBeGreaterThanOrEqual(-1e-9);
+      expect(v.y).toBeLessThanOrEqual(6 + 1e-9);
+    }
+  });
+
+  it('leaves a polygon alone at zero radius', () => {
+    const square = [v2(0, 0), v2(10, 0), v2(10, 10), v2(0, 10)];
+    expect(filletPolygon(square, 0).verts).toHaveLength(4);
   });
 });

@@ -769,6 +769,66 @@ describe('canopy doors', () => {
     expect(Math.max(...along)).toBeCloseTo(40 + doorWidth, 4);
   });
 
+  it('follows a leaning wall instead of forcing a rectangle into it', () => {
+    // This is the case that shipped broken. With the sides leaned in, the rear
+    // wall is a trapezium; a rectangle inset from its bounding box pokes out
+    // through the sloping edge, and the whole canopy failed to build.
+    const leaning: CanopyParams = {
+      ...CANOPY,
+      taperDeg: { leftDeg: 5, rightDeg: 5 },
+      doors: [{ wall: 'left' }, { wall: 'right' }, { wall: 'rear' }],
+    };
+    expect(() => canopyDocument(leaning)).not.toThrow();
+
+    const rear = partNamed(canopyDocument(leaning), 'CAN-REAR');
+    const wall = outerOf(rear);
+    const opening = openingIn(rear)[0]!.loop.verts;
+
+    // The wall narrows toward the top, and so does its opening: the margins are
+    // true all the way round rather than true at the bottom and wrong at the top.
+    const widthAt = (vs: readonly { x: number; y: number }[], high: boolean) => {
+      const ys = vs.map((v) => v.y);
+      const cut = (Math.min(...ys) + Math.max(...ys)) / 2;
+      const half = vs.filter((v) => (high ? v.y > cut : v.y < cut));
+      return Math.max(...half.map((v) => v.x)) - Math.min(...half.map((v) => v.x));
+    };
+    // Which end of the panel's own y axis is the top is the frame's business,
+    // not this test's; what matters is that the opening tapers the same way the
+    // wall does rather than staying square inside it.
+    const wallTaper = widthAt(wall, true) - widthAt(wall, false);
+    const openingTaper = widthAt(opening, true) - widthAt(opening, false);
+    expect(Math.abs(wallTaper)).toBeGreaterThan(1);
+    expect(Math.sign(openingTaper)).toBe(Math.sign(wallTaper));
+
+    // And the opening stays inside the metal.
+    const xs = wall.map((v) => v.x);
+    const ys = wall.map((v) => v.y);
+    for (const v of opening) {
+      expect(v.x).toBeGreaterThan(Math.min(...xs));
+      expect(v.x).toBeLessThan(Math.max(...xs));
+      expect(v.y).toBeGreaterThan(Math.min(...ys));
+      expect(v.y).toBeLessThan(Math.max(...ys));
+    }
+  });
+
+  it('hangs a door on every leaning wall, still one thickness proud', () => {
+    const leaning: CanopyParams = {
+      ...CANOPY,
+      taperDeg: { leftDeg: 5, rightDeg: 5 },
+      doors: [{ wall: 'left' }, { wall: 'right' }, { wall: 'rear' }],
+    };
+    const { parts, places } = placeAll(leaning);
+    for (const wall of ['left', 'right', 'rear'] as const) {
+      const wk = partId(`CAN-${wall.toUpperCase()}`);
+      const dk = partId(`CAN-${wall.toUpperCase()}-DOOR`);
+      const w = worldEdge(parts.get(wk)!, places.get(wk)!, faceId(wall), 'bottom');
+      const d = worldEdge(parts.get(dk)!, places.get(dk)!, faceId(`${wall}-door`), 'bottom');
+      const gap = sub3(d.p0, w.p0);
+      expect(dot3(gap, w.normal)).toBeCloseTo(T, 4);
+      expect(dot3(gap, w.inward)).toBeCloseTo(40, 4);
+    }
+  });
+
   it('refuses margins that leave no opening', () => {
     expect(() => canopyDocument({ ...CANOPY, doors: [{ wall: 'rear', jambMm: 2000 }] })).toThrow(
       CanopyParameterError,
