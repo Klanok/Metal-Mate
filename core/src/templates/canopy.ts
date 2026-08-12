@@ -111,8 +111,12 @@ export interface CanopyParams {
    * wall laps up inside it, so the top corner is a bend rather than a joint and
    * the rivets move onto the wall face below it. That is the construction the
    * Utemaster-style canopies read as: an unbroken top edge and no fastener in
-   * view. The corner is only as smooth as `bendRadiusMm` and the press tooling
-   * allow — a sweeping radius needs bump forming, which this does not do.
+   * view.
+   *
+   * How smooth that corner comes out is `bendRadiusMm`, and it is formed as one
+   * bend. What radius the brake can actually hold is not known — the die rack is
+   * still one of the open questions, and the placeholder machine's numbers are
+   * nobody's measurement. Do not read a limit into this either way.
    *
    * The bottom seam is unaffected: a wall still turns a lip onto the floor.
    */
