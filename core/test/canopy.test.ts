@@ -15,6 +15,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { initBooleans } from '../src/geometry/boolean.js';
 import { dot3, sub3 } from '../src/geometry/vec3.js';
 import { faceId, partId } from '../src/ids.js';
+import { type Feature } from '../src/features/types.js';
 import { regenerate } from '../src/features/regen.js';
 import { GENERIC_2500_40T } from '../src/machine/machineProfile.js';
 import { type Frame3, fold } from '../src/unfold/fold.js';
@@ -669,3 +670,135 @@ describe('through the rest of the pipeline', () => {
     expect(wide.exportAllowed).toBe(true);
   });
 });
+
+/**
+ * Door openings and the doors that close them.
+ *
+ * The opening is a hole in the wall and the door is its own blank lapping over
+ * it. What these tests care about is that the two agree: that the hole lands
+ * inside the metal, that the door is big enough to cover it, and that the door
+ * ends up in front of the hole rather than somewhere else on the wall.
+ *
+ * The placement test is the one that would catch a sign error in the mate. A
+ * flipped `beyondMm` hangs the door under the canopy instead of over the
+ * opening, and every other check here would still pass.
+ *
+ * Note that rivet holes are cutouts too, so anything counting openings has to
+ * say which cutouts it means rather than counting them all.
+ */
+describe('canopy doors', () => {
+  const WITH_DOOR: CanopyParams = { ...CANOPY, doors: [{ wall: 'left' }] };
+
+  /** The door opening in a part, as distinct from its rivet holes. */
+  const openingIn = (part: (typeof CANOPY_DOC.parts)[number]) =>
+    part.features.filter(
+      (f): f is Extract<Feature, { kind: 'cutout' }> =>
+        f.kind === 'cutout' && (f.label?.endsWith('door opening') ?? false),
+    );
+
+  const partNamed = (doc: ReturnType<typeof canopyDocument>, id: string) =>
+    doc.parts.find((p) => p.parameters.partId === id)!;
+
+  const outerOf = (part: ReturnType<typeof partNamed>) =>
+    part.features.find((f) => f.kind === 'base-flange')!.profile.outer.verts;
+
+  const span = (vs: readonly { x: number; y: number }[]) => ({
+    width: Math.max(...vs.map((v) => v.x)) - Math.min(...vs.map((v) => v.x)),
+    height: Math.max(...vs.map((v) => v.y)) - Math.min(...vs.map((v) => v.y)),
+  });
+
+  it('makes no openings unless asked', () => {
+    const doc = canopyDocument(CANOPY);
+    expect(doc.parts.flatMap(openingIn)).toHaveLength(0);
+    expect(doc.parts).toHaveLength(canopyPanels(CANOPY).length);
+  });
+
+  it('cuts an opening in the wall and adds the door as its own part', () => {
+    const doc = canopyDocument(WITH_DOOR);
+    expect(doc.parts).toHaveLength(canopyPanels(WITH_DOOR).length + 1);
+    expect(openingIn(partNamed(doc, 'CAN-LEFT'))).toHaveLength(1);
+    // The other three walls stay shut.
+    expect(openingIn(partNamed(doc, 'CAN-RIGHT'))).toHaveLength(0);
+    expect(openingIn(partNamed(doc, 'CAN-REAR'))).toHaveLength(0);
+
+    const door = partNamed(doc, 'CAN-LEFT-DOOR');
+    expect(door.features.filter((f) => f.kind === 'edge-flange')).toHaveLength(4);
+  });
+
+  it('sizes the opening by its margins and the door to lap over it', () => {
+    const doc = canopyDocument(WITH_DOOR);
+    const wall = span(outerOf(partNamed(doc, 'CAN-LEFT')));
+    const opening = span(openingIn(partNamed(doc, 'CAN-LEFT'))[0]!.loop.verts);
+
+    // Defaults: 60 mm jambs, 60 mm head and sill.
+    expect(opening.width).toBeCloseTo(wall.width - 120, 5);
+    expect(opening.height).toBeCloseTo(wall.height - 120, 5);
+
+    // 20 mm lap all round, so the blank is 40 mm bigger than the hole each way.
+    const door = span(outerOf(partNamed(doc, 'CAN-LEFT-DOOR')));
+    expect(door.width).toBeCloseTo(opening.width + 40, 5);
+    expect(door.height).toBeCloseTo(opening.height + 40, 5);
+  });
+
+  it('puts the door over its opening, one thickness proud of the wall', () => {
+    const { parts, places } = placeAll(WITH_DOOR);
+    const wallKey = partId('CAN-LEFT');
+    const doorKey = partId('CAN-LEFT-DOOR');
+    const wall = worldEdge(parts.get(wallKey)!, places.get(wallKey)!, faceId('left'), 'bottom');
+    const door = worldEdge(parts.get(doorKey)!, places.get(doorKey)!, faceId('left-door'), 'bottom');
+
+    const doorWidth = span(outerOf(partNamed(canopyDocument(WITH_DOOR), 'CAN-LEFT-DOOR'))).width;
+
+    // One thickness out along the wall's own outward normal: the door lies on
+    // the outside skin, not through it and not inside the canopy.
+    for (const p of [door.p0, door.p1]) {
+      expect(dot3(sub3(p, wall.p0), wall.normal)).toBeCloseTo(T, 4);
+    }
+
+    // Up the wall by the sill less the lap: the door's bottom edge sits 20 mm
+    // below the top of the 60 mm sill. A flipped sign hangs it under the ute.
+    for (const p of [door.p0, door.p1]) {
+      expect(dot3(sub3(p, wall.p0), wall.inward)).toBeCloseTo(40, 4);
+    }
+
+    // The mate lines the two edges up antiparallel, so the door's own p0 is its
+    // far corner. What matters is the span it covers: from the jamb less the
+    // lap, to that plus the width of the blank.
+    const along = [door.p0, door.p1].map((p) => dot3(sub3(p, wall.p0), wall.dir));
+    expect(Math.min(...along)).toBeCloseTo(40, 4);
+    expect(Math.max(...along)).toBeCloseTo(40 + doorWidth, 4);
+  });
+
+  it('refuses margins that leave no opening', () => {
+    expect(() => canopyDocument({ ...CANOPY, doors: [{ wall: 'rear', jambMm: 2000 }] })).toThrow(
+      CanopyParameterError,
+    );
+  });
+
+  it('refuses two doors in one wall', () => {
+    expect(() =>
+      canopyDocument({ ...CANOPY, doors: [{ wall: 'left' }, { wall: 'left', headMm: 80 }] }),
+    ).toThrow(CanopyParameterError);
+  });
+
+  it('refuses a return that is inside its own bend', () => {
+    expect(() => canopyDocument({ ...CANOPY, doors: [{ wall: 'left', returnMm: 1 }] })).toThrow(
+      CanopyParameterError,
+    );
+  });
+
+  it('builds and exports a canopy with doors on both sides and the rear', () => {
+    const params: CanopyParams = {
+      ...CANOPY,
+      doors: [{ wall: 'left' }, { wall: 'right' }, { wall: 'rear' }],
+    };
+    const doc = canopyDocument(params);
+    expect(doc.parts).toHaveLength(canopyPanels(params).length + 3);
+
+    const built = buildDocument(doc.parts, { machine: GENERIC_2500_40T });
+    expect(built.exportAllowed).toBe(true);
+    expect(() => exportDocumentDxf(built)).not.toThrow();
+  });
+});
+
+const CANOPY_DOC = canopyDocument(CANOPY);
